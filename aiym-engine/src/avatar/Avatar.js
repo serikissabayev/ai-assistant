@@ -8,8 +8,9 @@ const damp = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-ra
 const rand = (a, b) => a + Math.random() * (b - a);
 
 export const EMOTIONS = {
-  neutral: { smile: 0.55, browUp: 0.1, browInner: 0, squint: 0.1, open: 0 },
+  neutral: { smile: 0.55, browUp: 0.1, browInner: 0, squint: 0.1, open: 0, wide: 1, teeth: 0 },
   happy: { smile: 0.95, browUp: 0.35, browInner: 0, squint: 0.35, open: 0.05 },
+  grin: { smile: 1, browUp: 0.45, browInner: 0, squint: 0.55, open: 0.42, wide: 1.3, teeth: 1 },                // широкая улыбка: рот открыт, видны зубы
   surprised: { smile: 0.1, browUp: 1, browInner: 0, squint: 0, open: 0.35 },
   sad: { smile: -0.25, browUp: 0.1, browInner: 0.8, squint: 0, open: 0 },
   shocked: { smile: -0.3, browUp: 1, browInner: 0.55, squint: -0.45, open: 0.5 },     // шок: брови вверх, глаза широко, рот приоткрыт
@@ -117,7 +118,7 @@ export class Avatar {
   setEmotion(name, weight = 1) {
     const e = EMOTIONS[name] ?? EMOTIONS.neutral;
     const n = EMOTIONS.neutral;
-    for (const k of Object.keys(n)) this.s.emoTarget[k] = n[k] + (e[k] - n[k]) * weight;
+    for (const k of Object.keys(n)) this.s.emoTarget[k] = n[k] + ((e[k] ?? n[k]) - n[k]) * weight;
   }
 
   /** 'nod' | 'shake' | 'tilt' | 'blink' | 'flinch' (отшатнуться); жесты рукой: 'wave' | 'like' | 'peace' */
@@ -242,7 +243,7 @@ export class Avatar {
     // --- рот: смешение визем
     const w = { ...s.visemes };
     if (s.mouthOpen > 0) w.aa = Math.max(w.aa ?? 0, s.mouthOpen);
-    const tgt = { o: e.open, w: 1, p: 0, t: 0 };
+    const tgt = { o: e.open, w: e.wide, p: 0, t: e.teeth };
     let sum = 0;
     for (const [name, wt] of Object.entries(w)) {
       const v = VISEMES[name]; if (!v || wt <= 0) continue;
