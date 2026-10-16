@@ -119,9 +119,11 @@ export class Avatar {
   endSpeech() { this.s.visemes = {}; this.s.mouthOpen = 0; this.s.speech = 0; }
 
   setEmotion(name, weight = 1) {
+    this.s.baseEmo = { name, weight };                          // что просили снаружи (мимика, речь…) — к этому возвращаемся после жеста
     if (this.s.flyEmo) return;                                  // пока летит комар — мимика только злая
     this.#emo(name === 'neutral' && this.s.afterFly ? 'grin' : name, weight);
   }
+  #hostile() { return this.s.flyEmo || ['angry', 'sad'].includes(this.s.baseEmo?.name); }
   #emo(name, weight = 1) {
     const e = EMOTIONS[name] ?? EMOTIONS.neutral;
     const n = EMOTIONS.neutral;
@@ -134,7 +136,8 @@ export class Avatar {
     if (HAND_GESTURES[name]) {                       // жест рукой: wave | like | peace
       if (this.s.armG) return;                       // уже показывает жест
       const g = HAND_GESTURES[name];
-      this.s.armG = { name, t0: this.s.t, ...g }; this.setEmotion('happy', 0.8);
+      this.s.armG = { name, t0: this.s.t, ...g };
+      if (!this.#hostile()) this.#emo('happy', 0.8);                // жест не перебивает злое/грустное лицо собеседника
       return;
     }
     this.s.gesture = { name, t0: this.s.t };
@@ -253,7 +256,7 @@ export class Avatar {
       const ag = s.armG; let r = 0, pose = 'open', swing = 0;
       if (ag) {
         const u = t - ag.t0; pose = ag.pose;
-        if (u >= ag.dur) { s.armG = null; this.setEmotion('neutral'); }
+        if (u >= ag.dur) { s.armG = null; this.setEmotion(s.baseEmo?.name ?? 'neutral', s.baseEmo?.weight ?? 1); }       // возвращаем то лицо, что было до жеста
         else {
           r = u < RAISE_T ? smoothstep(u / RAISE_T) : u > ag.dur - LOWER_T ? 1 - smoothstep((u - (ag.dur - LOWER_T)) / LOWER_T) : 1;
           if (ag.name === 'wave') swing = Math.sin((u - RAISE_T) * Math.PI * 2 * 2.4) * 0.42 * smoothstep((u - RAISE_T) / 0.3) * (u < ag.dur - LOWER_T ? 1 : r);
@@ -277,7 +280,7 @@ export class Avatar {
     tgt.o = clamp(tgt.o, 0, 1.05); tgt.p = clamp(tgt.p, 0, 1); tgt.t = clamp(tgt.t, 0, 1);
     // в ответ она всегда улыбается: пока говорит или показывает жест — улыбка не меньше 0.75, и речь её почти не «съедает»
     const answering = Math.max(talk, s.armG ? 1 : 0);
-    const smileBase = Math.max(e.smile, answering * 0.75);
+    const smileBase = this.#hostile() ? e.smile : Math.max(e.smile, answering * 0.75);   // «в ответ улыбается» — но не поверх злости/грусти
     const smile = clamp(smileBase * (1 - Math.min(sum, 1) * 0.22), -0.6, 1);
     rig.mouth.update(dt, tgt, smile);
 
