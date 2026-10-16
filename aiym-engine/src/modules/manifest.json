@@ -1,0 +1,36 @@
+{
+  "builtin": [
+    "camera-feed",
+    "avatar-tester"
+  ],
+  "planned": [
+    {
+      "id": "hearing",
+      "name": "Слух",
+      "category": "input",
+      "description": "Стерео-микрофон, распознавание речи (STT), определение направления на говорящего.",
+      "dist": "modules-dist/hearing.js",
+      "version": "0.1"
+    },
+    {
+      "id": "vision",
+      "name": "Зрение",
+      "category": "input",
+      "description": "Фокус на говорящем и движущихся объектах, жесты, приветствие в ответ.",
+      "dist": "modules-dist/vision.js",
+      "version": "0.1"
+    },
+    {
+      "id": "speech",
+      "name": "Речь",
+      "category": "output",
+      "description": "Синтез голоса (TTS) и синхронизация губ по фонемам."
+    },
+    {
+      "id": "brain",
+      "name": "Мозг (LLM)",
+      "category": "brain",
+      "description": "Подключение к LM Studio / Ollama / OpenRouter, выбор модели и промпта."
+    }
+  ]
+}

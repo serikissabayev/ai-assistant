@@ -1,0 +1,10 @@
+{
+  "id": "camera-feed",
+  "name": "Веб-камера",
+  "category": "input",
+  "version": "0.1",
+  "engine": 1,
+  "entry": "index.js",
+  "enabled": false,
+  "description": "Видеопоток с камеры в правую панель в стиле «Матрицы». Запрос доступа к камере — при включении."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "avatar-tester",
+  "name": "Стенд аватара",
+  "category": "dev",
+  "version": "0.1",
+  "engine": 1,
+  "entry": "index.js",
+  "enabled": true,
+  "description": "Панель для проверки лица: эмоции, взгляд, виземы, фраза с синхронизацией губ."
+}
