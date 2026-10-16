@@ -169,7 +169,8 @@ export class Avatar {
     const was = mq.active;
     mq.update(dt, t, face);
     if (mq.active && !s.flyEmo) { s.flyEmo = true; this.#emo('angry', 1); }                       // комар → злится
-    if (was && !mq.active) { s.flyEmo = false; s.afterFly = true; this.#emo('grin', 1); }         // улетел → широко улыбается (и дальше по умолчанию)
+    if (was && !mq.active) { s.flyEmo = false; s.afterFly = true; s.afterFlyUntil = t + 3; this.#emo('grin', 1); }     // улетел → широко улыбается пару секунд
+    if (s.afterFly && t > s.afterFlyUntil) { s.afterFly = false; this.setEmotion(s.baseEmo?.name ?? 'neutral', s.baseEmo?.weight ?? 1); }   // и снова обычное лицо
     let fly = null;
     if (mq.active) {
       const dx = mq.pos.x - face.x, dy = mq.pos.y - (face.y - 0.1), dz = Math.max(0.15, mq.pos.z - face.z + 0.45);
