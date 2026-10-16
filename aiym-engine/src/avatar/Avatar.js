@@ -13,6 +13,7 @@ export const EMOTIONS = {
   surprised: { smile: 0.1, browUp: 1, browInner: 0, squint: 0, open: 0.35 },
   sad: { smile: -0.25, browUp: 0.1, browInner: 0.8, squint: 0, open: 0 },
   shocked: { smile: -0.3, browUp: 1, browInner: 0.55, squint: -0.45, open: 0.5 },     // шок: брови вверх, глаза широко, рот приоткрыт
+  angry: { smile: -0.35, browUp: -0.75, browInner: -0.95, squint: 0.65, open: 0 },       // злость: брови опущены и сведены, прищур
   thinking: { smile: 0.05, browUp: 0.45, browInner: -0.4, squint: 0.15, open: 0 },
 };
 
