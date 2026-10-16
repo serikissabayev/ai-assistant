@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.2', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.3', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -21,8 +21,9 @@ export default function create() {
   let tracks = [], nextId = 1, nowT = 0, heard = { x: 0, t: -99 }, current = null, lastLook = -99;
   const wave = [[], []], waveCool = { t: -99 }, gestureCool = {}, held = { wave: -99 };
   const motion = { prev: null, cv: null, g: null, x: 0, y: 0, amount: 0, emit: 0 };
-  const stat = { hand: '—', fps: 0, frames: 0, acc: 0, faces: 0, speaker: '—', gesture: '—', model: '—' };
-  let ui = {}, overlay = null, greeting = 0;
+  const stat = { mood: '—', hand: '—', fps: 0, frames: 0, acc: 0, faces: 0, speaker: '—', gesture: '—', model: '—' };
+  let ui = {}, overlay = null, greeting = 0, emoLock = -99;
+  const mimic = { cur: 'neutral', cand: null, since: 0, off: 0 };
 
   // Строгость жестов 1–5 (по умолчанию 4): чем выше, тем сильнее и дольше надо махать/держать жест, чтобы она ответила
   const pick = (arr) => arr[Math.max(1, Math.min(5, Math.round(cfg('strictness', 4)))) - 1];
@@ -78,6 +79,7 @@ export default function create() {
     if (pose && cfg('salute', true) && ++process.m % 3 === 0) checkSalute(pose.detectForVideo(video, ts), t);
     stat.faces = faces.length;
     ctx.bus.emit('vision.faces', faces.map((f) => ({ id: f.id, x: f.sx, y: f.sy, size: f.size, speaking: f.speaking })));
+    mirrorMood(faces, t, Math.max(0.02, Math.min(0.3, t - (process.lastM ?? t)))); process.lastM = t;
     decide(faces, handInfo, t);
     drawOverlay(faces);
   }
@@ -88,7 +90,8 @@ export default function create() {
       let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
       for (const p of lm) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
       const jaw = r.faceBlendshapes?.[i]?.categories?.find((c) => c.categoryName === 'jawOpen')?.score ?? 0;
-      return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, jaw };
+      const bs = Object.fromEntries((r.faceBlendshapes?.[i]?.categories ?? []).map((c) => [c.categoryName, c.score]));
+      return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, jaw, mood: moodOf(bs) };
     });
     const used = new Set();
     for (const f of found) {                                  // привязываем к ближайшему прежнему лицу
@@ -97,12 +100,45 @@ export default function create() {
       if (!best) { best = { id: nextId++, act: 0, jaw: f.jaw, score: 0 }; tracks.push(best); }
       used.add(best);
       best.act = best.act * 0.8 + Math.abs(f.jaw - best.jaw) * 0.2;
+      best.mood = best.mood ? { smile: best.mood.smile * 0.6 + f.mood.smile * 0.4, sad: best.mood.sad * 0.6 + f.mood.sad * 0.4, angry: best.mood.angry * 0.6 + f.mood.angry * 0.4 } : f.mood;
       best.jaw = f.jaw; Object.assign(best, { cx: f.cx, cy: f.cy, w: f.w, h: f.h, seen: t });
       best.speaking = best.act > cfg('speakThreshold', 0.012) * 1;
       best.sx = toScreenX(best.cx); best.sy = 1 - best.cy * 2; best.size = Math.max(best.w, best.h);
     }
     tracks = tracks.filter((tr) => t - tr.seen < 1);
     return tracks.filter((tr) => tr.seen === t);
+  }
+
+  // ───────── мимика: отвечаем улыбкой на улыбку, грустью на грусть, злостью на злость ─────────
+  const avg = (bs, a, b) => ((bs[a] ?? 0) + (bs[b] ?? 0)) / 2;
+  function moodOf(bs) {
+    const smile = avg(bs, 'mouthSmileLeft', 'mouthSmileRight');
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    return {
+      smile: clamp01(smile * 1.1),
+      sad: clamp01(avg(bs, 'mouthFrownLeft', 'mouthFrownRight') * 1.8 + (bs.browInnerUp ?? 0) * 0.8 + (bs.mouthShrugLower ?? 0) * 0.3 - smile),
+      angry: clamp01(avg(bs, 'browDownLeft', 'browDownRight') * 1.3 + avg(bs, 'noseSneerLeft', 'noseSneerRight') * 0.8 + avg(bs, 'eyeSquintLeft', 'eyeSquintRight') * 0.3 - smile),
+    };
+  }
+  const MOOD_BASE = { smile: 0.35, sad: 0.3, angry: 0.3 }, MOOD_EMO = { smile: 'happy', sad: 'sad', angry: 'angry' }, MOOD_RU = { smile: 'улыбка', sad: 'грусть', angry: 'злость' };
+  function mirrorMood(faces, t, dt) {
+    if (ui.mood && (!faces.length || !cfg('mimic', true))) ui.mood.textContent = !cfg('mimic', true) ? 'Мимика выключена' : 'Мимика: лица в кадре нет';
+    if (!cfg('mimic', true) || !faces.length || t < emoLock) return;
+    const f = faces.reduce((a, b) => (b.size > a.size ? b : a));          // ближайшее лицо
+    if (!f.mood) return;
+    if (ui.mood) ui.mood.textContent = `Мимика (v2) → улыбка ${f.mood.smile.toFixed(2)}/${(MOOD_BASE.smile * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · грусть ${f.mood.sad.toFixed(2)}/${(MOOD_BASE.sad * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · злость ${f.mood.angry.toFixed(2)}/${(MOOD_BASE.angry * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)}  (значение/порог)`;
+    const k = 1.5 - cfg('mimicSens', 5) * 0.1;                             // чувствительность 1–10 → порог ×1.4 … ×0.5
+    let name = null, ratio = 0;
+    for (const m of ['smile', 'sad', 'angry']) { const r = f.mood[m] / (MOOD_BASE[m] * k); if (r > 1 && r > ratio) { name = m; ratio = r; } }
+    stat.mood = name ? MOOD_RU[name] : 'нейтрально';
+    if (name) {
+      mimic.off = 0;
+      mimic.since = mimic.cand === name ? mimic.since + dt : 0; mimic.cand = name;
+      if (mimic.since > 0.3 && mimic.cur !== name) { mimic.cur = name; ctx.avatar.setEmotion(MOOD_EMO[name], Math.min(1, 0.6 + ratio * 0.2)); ctx.bus.emit('vision.emotion', { name }); }
+    } else {
+      mimic.cand = null; mimic.since = 0;
+      if (mimic.cur !== 'neutral' && (mimic.off += dt) > 0.7) { mimic.cur = 'neutral'; ctx.avatar.setEmotion('neutral'); ctx.bus.emit('vision.emotion', { name: 'neutral' }); }
+    }
   }
 
   const holds = {}, seen = new Set(), seenPos = {};
@@ -203,6 +239,7 @@ export default function create() {
   // Реакция: шок — брови вверх, глаза шире, рот приоткрыт, отшатывается и смотрит на этого человека. Не здоровается, не улыбается.
   function react(kind, at, t) {
     const a = ctx.avatar;
+    emoLock = t + 4.5; mimic.cur = 'shocked';
     waveCool.t = t + 3;                                                  // ближайшие секунды приветствие подавлено (чтобы не «ответить» на жест)
     clearTimeout(greeting);
     a.setEmotion('shocked', 1); a.trigger('flinch');
@@ -215,7 +252,7 @@ export default function create() {
 
   function greet(t) {
     if (!cfg('greet', true)) return;
-    const a = ctx.avatar;
+    const a = ctx.avatar; emoLock = t + 3.5; mimic.cur = 'happy';
     a.setEmotion('happy', 0.9); a.trigger('wave');          // машем в ответ — только когда помахали нам
     const text = cfg('greeting', 'Салеметсизбе');
     ctx.bus.emit('speech.say', { text });           // озвучка (или «немая речь» движка) сама двигает губами и покажет субтитр
@@ -287,18 +324,20 @@ export default function create() {
   function refreshUi() {
     if (!ui.status?.isConnected) return;
     ui.status.textContent = `Модели: ${stat.model} · камера: ${video ? 'есть' : 'нет'} · ${stat.fps} к/с`;
-    ui.info.textContent = `Лиц: ${stat.faces} · внимание: ${stat.speaker} · жест: ${stat.gesture} · рука: ${stat.hand}`;
+    ui.info.textContent = `Лиц: ${stat.faces} · внимание: ${stat.speaker} · мимика: ${stat.mood} · жест: ${stat.gesture} · рука: ${stat.hand}`;
   }
 
   function buildPanel(el) {
     const field = (label, node, hint) => h('label', { class: 'row', style: 'flex-wrap:wrap' }, h('span', { class: 'row-text' }, h('b', {}, label), hint ? h('small', {}, hint) : null), node);
     const check = (key, def) => h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg(key, def), onchange: (e) => ctx.config.set(key, e.target.checked) }), h('span', {}));
     const text = (key, def, attrs = {}) => { const i = h('input', { class: 'text-input', value: cfg(key, def), ...attrs }); i.onchange = () => ctx.config.set(key, i.value.trim()); return i; };
-    ui.status = h('div', { class: 'hint' }); ui.info = h('div', { class: 'hint', style: 'margin-top:2px' });
-    el.append(ui.status, ui.info,
+    ui.status = h('div', { class: 'hint' }); ui.info = h('div', { class: 'hint', style: 'margin-top:2px' }); ui.mood = h('div', { class: 'hint', style: 'margin-top:2px;font-variant-numeric:tabular-nums' }, 'Мимика (v2): ждём лицо…');
+    el.append(ui.status, ui.info, ui.mood,
       field('Следить за говорящим', check('followSpeaker', true), 'Аватар поворачивается к тому, кто говорит'),
       field('Смотреть на ближайшее лицо', check('lookAtFaces', true), 'Когда никто не говорит'),
       field('Следить за движением', check('trackMotion', true), 'Для собраний: взгляд на того, кто двигается'),
+      field('Копировать мимику', check('mimic', true), 'Улыбка на улыбку, грусть на грусть, злость на злость (ближайшее лицо)'),
+      field('Чувствительность мимики (1–10)', h('input', { type: 'range', min: 1, max: 10, step: 1, value: cfg('mimicSens', 5), oninput: (e) => ctx.config.set('mimicSens', Number(e.target.value)) }), 'Выше — реагирует на слабую мимику'),
       field('Жесты', check('gestures', true)),
       field('Строгость жестов (1–5)', h('input', { type: 'range', min: 1, max: 5, step: 1, value: cfg('strictness', 4), oninput: (e) => ctx.config.set('strictness', Number(e.target.value)) }), 'Выше — надо махать сильнее и дольше, жест держать дольше'),
       field('Реакция на недопустимый жест', check('salute', true), 'Вытянутая вперёд-вверх прямая рука: она удивляется и не здоровается'),
