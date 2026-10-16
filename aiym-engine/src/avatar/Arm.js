@@ -11,13 +11,14 @@ const ARM_POSE = {
   like: { A: 1.35, T: 2.0 },
 };
 
-// Кисть — готовый рисунок (спрайт), а не анимация пальцев: ✋ привет, 👍 лайк, ✌️ пис.
-// anchor — где на рисунке запястье (доли размера от центра), size — высота рисунка в единицах сцены,
-// forward — куда у рисунка «смотрит» кисть (от запястья), mirror — зеркалить для руки с другой стороны.
+// Кисть — готовый рисунок (спрайт), а не анимация пальцев: привет, лайк, пис (assets/hands/*.png).
+// px — размер рисунка в пикселях, anchor — где на рисунке запястье (доли ширины/высоты от центра, y вверх),
+// forward — куда у рисунка «смотрит» кисть (от запястья). Один масштаб на все рисунки, чтобы рука была одного размера.
+const PX = 0.00168;            // единиц сцены на пиксель рисунка (высота ладони с пальцами ≈ 0.95)
 const SPRITES = {
-  open: { file: 'wave', size: 0.86, anchor: [0, -0.43], forward: [0, 1] },
-  peace: { file: 'peace', size: 0.86, anchor: [0, -0.4], forward: [0, 1] },
-  like: { file: 'like', size: 0.92, anchor: [-0.45, -0.24], forward: [1, 0] },   // у рисунка кулак смотрит вправо, запястье слева
+  open: { file: 'wave', px: [418, 565], anchor: [0.014, -0.44], forward: [0, 1] },
+  peace: { file: 'peace', px: [263, 587], anchor: [0.059, -0.44], forward: [0, 1] },
+  like: { file: 'like', px: [356, 471], anchor: [-0.36, -0.4], forward: [0.866, 0.5] },   // кулак смотрит вправо-вверх, запястье внизу слева
 };
 
 const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
@@ -73,9 +74,9 @@ export function buildArm(sx, mats, chest, restArm) {
   // спрайты кисти (по одному на жест), одна плоскость на всех
   const loader = new THREE.TextureLoader(), tex = {};
   for (const [pose, def] of Object.entries(SPRITES)) {
-    tex[pose] = loader.load(`assets/hands/${def.file}.svg`, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; });
+    tex[pose] = loader.load(`assets/hands/${def.file}.png`, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; });
   }
-  const spriteMat = new THREE.MeshBasicMaterial({ map: tex.open, transparent: true, alphaTest: 0.02, color: '#e4dcd6' });   // чуть приглушаем, чтобы тон кожи совпал с освещённым лицом
+  const spriteMat = new THREE.MeshBasicMaterial({ map: tex.open, transparent: true, alphaTest: 0.02, color: '#dec4ae' });   // чуть приглушаем, чтобы тон кожи совпал с освещённым лицом
   const sprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), spriteMat);
   sprite.renderOrder = 20; g.add(sprite);
 
@@ -97,10 +98,10 @@ export function buildArm(sx, mats, chest, restArm) {
       const fAngle = Math.atan2(-Math.cos(th), Math.sin(th));                 // направление предплечья (от локтя к кисти)
       const mirror = armPose === 'like' && sx < 0;                            // кулак «лайка» должен смотреть наружу
       const rot = fAngle - Math.atan2(def.forward[1], mirror ? -def.forward[0] : def.forward[0]);
-      const size = def.size * smooth(r * 1.4);
-      sprite.scale.set((mirror ? -1 : 1) * size, size, 1);
+      const k = PX * smooth(r * 1.4), W = def.px[0] * k, Hh = def.px[1] * k;
+      sprite.scale.set((mirror ? -1 : 1) * W, Hh, 1);
       sprite.rotation.z = rot;
-      const ax = (mirror ? -1 : 1) * def.anchor[0] * size, ay = def.anchor[1] * size;
+      const ax = (mirror ? -1 : 1) * def.anchor[0] * W, ay = def.anchor[1] * Hh;
       const c = Math.cos(rot), s = Math.sin(rot);
       wrist.getWorldPosition(_p); g.worldToLocal(_p);
       sprite.position.set(_p.x - (ax * c - ay * s), _p.y - (ax * s + ay * c), _p.z);

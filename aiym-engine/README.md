@@ -29,5 +29,5 @@ config/engine.json   настройки для киоска (перекрыва�
 ## Ещё не написаны
 speech (TTS + фонемы), brain (LM Studio / Ollama / OpenRouter; черновик в `src/modules/brain/`).
 
-## Благодарности
-Рисунки рук для жестов (`assets/hands/`) — Twemoji, CC BY 4.0, подробности в [assets/hands/README.md](assets/hands/README.md).
+## Руки для жестов
+Привет, лайк и пис — спрайты из `assets/hands/` (описание — [assets/hands/README.md](assets/hands/README.md)).

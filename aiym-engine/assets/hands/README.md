@@ -1,6 +1,5 @@
 # Спрайты рук
 
-`wave.svg` (✋), `like.svg` (👍), `peace.svg` (✌️) — рисунки на основе эмодзи **Twemoji**
-(© Twitter, Inc. и контрибьюторы), лицензия [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-Изменено: цвет кожи подогнан под аватар, добавлен тёмный контур.
-Источник: https://github.com/twitter/twemoji
+`wave.png` (привет), `like.png` (лайк), `peace.png` (пис) — вырезаны из образца `source/reference.webp`
+скриптом `tools/cut_hands.py` (`python3 tools/cut_hands.py`). Чтобы поменять рисунки, замените образец и запустите скрипт;
+положение запястья и размеры задаются в `src/avatar/Arm.js` (`SPRITES`).
