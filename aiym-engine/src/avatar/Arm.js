@@ -14,7 +14,7 @@ const ARM_POSE = {
 // Кисть — готовый рисунок (спрайт), а не анимация пальцев: привет, лайк, пис (assets/hands/*.png).
 // px — размер рисунка в пикселях, anchor — где на рисунке запястье (доли ширины/высоты от центра, y вверх),
 // forward — куда у рисунка «смотрит» кисть (от запястья). Один масштаб на все рисунки, чтобы рука была одного размера.
-const PX = 0.00168;            // единиц сцены на пиксель рисунка (высота ладони с пальцами ≈ 0.95)
+const PX = 0.00126;            // единиц сцены на пиксель рисунка (высота ладони с пальцами ≈ 0.95)
 const SPRITES = {
   open: { file: 'wave', px: [418, 565], anchor: [0.014, -0.44], forward: [0, 1] },
   peace: { file: 'peace', px: [263, 587], anchor: [0.059, -0.44], forward: [0, 1] },
@@ -76,7 +76,7 @@ export function buildArm(sx, mats, chest, restArm) {
   for (const [pose, def] of Object.entries(SPRITES)) {
     tex[pose] = loader.load(`assets/hands/${def.file}.png`, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; });
   }
-  const spriteMat = new THREE.MeshBasicMaterial({ map: tex.open, transparent: true, alphaTest: 0.02, color: '#dec4ae' });   // чуть приглушаем, чтобы тон кожи совпал с освещённым лицом
+  const spriteMat = new THREE.MeshBasicMaterial({ map: tex.open, transparent: true, alphaTest: 0.02, color: '#f7debd' });   // подобран замером: кожа кисти на экране = кожа лица и предплечья (≈ 234,153,95)
   const sprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), spriteMat);
   sprite.renderOrder = 20; g.add(sprite);
 
