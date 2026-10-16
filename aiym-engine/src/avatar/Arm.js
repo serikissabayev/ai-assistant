@@ -12,13 +12,14 @@ const ARM_POSE = {
 };
 
 // Кисть — готовый рисунок (спрайт), а не анимация пальцев: привет, лайк, пис (assets/hands/*.png).
-// px — размер рисунка в пикселях, anchor — где на рисунке запястье (доли ширины/высоты от центра, y вверх),
-// forward — куда у рисунка «смотрит» кисть (от запястья). Один масштаб на все рисунки, чтобы рука была одного размера.
-const PX = 0.00126;            // единиц сцены на пиксель рисунка (высота ладони с пальцами ≈ 0.95)
+// px — размер рисунка в пикселях; h — высота рисунка в единицах сцены (подобрана, чтобы рука была в масштабе тела);
+// anchor — где на рисунке запястье (доли ширины/высоты от центра, y вверх); forward — куда «смотрит» кисть от запястья;
+// facing — куда кулак смотрит на самом рисунке ('left': для руки слева на экране зеркалить не нужно); tint — цвет, подобранный замером:
+// кожа кисти на экране = кожа лица и предплечья (≈ 234,153,95). Пересчитать: tools/cut_hands.py
 const SPRITES = {
-  open: { file: 'wave', px: [418, 565], anchor: [0.014, -0.46], forward: [0, 1] },
-  peace: { file: 'peace', px: [263, 587], anchor: [0.059, -0.46], forward: [0, 1] },
-  like: { file: 'like', px: [356, 471], anchor: [-0.285, -0.345], forward: [0.866, 0.5] },   // кулак смотрит вправо-вверх, запястье внизу слева
+  open: { file: 'wave', px: [466, 616], h: 0.712, anchor: [0.004, -0.465], forward: [0, 1], tint: '#f7e0bd' },
+  peace: { file: 'peace', px: [268, 612], h: 0.74, anchor: [0.017, -0.465], forward: [0, 1], tint: '#f9e5c2' },
+  like: { file: 'like', px: [386, 523], h: 0.594, anchor: [0.442, -0.299], forward: [-0.879, 0.477], tint: '#fbe5c2', facing: 'left' },
 };
 
 const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
@@ -97,9 +98,10 @@ export function buildArm(sx, mats, chest, restArm) {
       spriteMat.map = tex[armPose] ?? tex.open;
       const th = sx * (P.T * r + swing);                                      // поворот предплечья от «вниз»
       const fAngle = Math.atan2(-Math.cos(th), Math.sin(th));                 // направление предплечья (от локтя к кисти)
-      const mirror = armPose === 'like' && sx < 0;                            // кулак «лайка» должен смотреть наружу
+      const mirror = def.facing === 'left' ? sx > 0 : false;                  // кулак «лайка» должен смотреть наружу (на рисунке — влево)
       const rot = fAngle - Math.atan2(def.forward[1], mirror ? -def.forward[0] : def.forward[0]);
-      const k = PX * smooth(r * 1.4), W = def.px[0] * k, Hh = def.px[1] * k;
+      const k = (def.h / def.px[1]) * smooth(r * 1.4), W = def.px[0] * k, Hh = def.px[1] * k;
+      spriteMat.color.set(def.tint);
       sprite.scale.set((mirror ? -1 : 1) * W, Hh, 1);
       sprite.rotation.z = rot;
       const ax = (mirror ? -1 : 1) * def.anchor[0] * W, ay = def.anchor[1] * Hh;
