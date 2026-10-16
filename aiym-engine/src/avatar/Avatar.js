@@ -213,7 +213,7 @@ export class Avatar {
           r = u < RAISE_T ? smoothstep(u / RAISE_T) : u > ag.dur - LOWER_T ? 1 - smoothstep((u - (ag.dur - LOWER_T)) / LOWER_T) : 1;
           if (ag.name === 'wave') swing = Math.sin((u - RAISE_T) * Math.PI * 2 * 2.4) * 0.42 * smoothstep((u - RAISE_T) / 0.3) * (u < ag.dur - LOWER_T ? 1 : r);
           if (ag.name === 'like') swing = Math.sin((u - RAISE_T) * Math.PI * 2 * 1.6) * 0.09 * smoothstep((u - RAISE_T) / 0.4);   // лёгкое «покачивание» кулаком
-          if (ag.name !== 'wave') pose = u < RAISE_T + 0.25 ? 'open' : ag.pose;          // сначала поднимает раскрытую ладонь, потом складывает жест
+          pose = ag.pose;          // сначала поднимает раскрытую ладонь, потом складывает жест
         }
       }
       rig.arms.left.update(dt, t, r, pose, swing, ag?.name === 'like' ? 'like' : ag?.name === 'peace' ? 'peace' : 'open');

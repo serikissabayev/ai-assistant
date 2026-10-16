@@ -1,20 +1,29 @@
 import * as THREE from 'three';
-import { flatToon, toon, addOutline, PAL } from './toon.js';
-import { buildHand } from './Hand.js';
+import { flatToon, addOutline, PAL } from './toon.js';
 
 const UPPER = 0.72, FOREARM = 0.8, LEAN = 0.18;
+
 // Углы руки: A — плечо (0 = вниз, + наружу), T — итоговый поворот предплечья от «вниз».
-// Маха́ние и «V» — предплечье вертикально. «Лайк» — предплечье отведено вбок-вверх (≈40°), кулак смотрит ладонью на зрителя,
-// большой палец торчит вверх перпендикулярно предплечью — как в классическом 👍.
+// Привет и «V» — предплечье вертикально; «лайк» — предплечье отведено вбок-вверх, кулак виден сбоку, большой палец вверх.
 const ARM_POSE = {
   open: { A: 1.62, T: Math.PI - LEAN },
   peace: { A: 1.62, T: Math.PI - LEAN },
-  like: { A: 1.35, T: 2.27 },
+  like: { A: 1.35, T: 2.0 },
 };
+
+// Кисть — готовый рисунок (спрайт), а не анимация пальцев: ✋ привет, 👍 лайк, ✌️ пис.
+// anchor — где на рисунке запястье (доли размера от центра), size — высота рисунка в единицах сцены,
+// forward — куда у рисунка «смотрит» кисть (от запястья), mirror — зеркалить для руки с другой стороны.
+const SPRITES = {
+  open: { file: 'wave', size: 0.86, anchor: [0, -0.43], forward: [0, 1] },
+  peace: { file: 'peace', size: 0.86, anchor: [0, -0.4], forward: [0, 1] },
+  like: { file: 'like', size: 0.92, anchor: [-0.45, -0.24], forward: [1, 0] },   // у рисунка кулак смотрит вправо, запястье слева
+};
+
 const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
+const _p = new THREE.Vector3();
 
 // «Жестовая» рука: появляется только во время жеста (обычная опущенная рука при этом прячется).
-// Все повороты — вокруг оси z, поэтому ладонь всегда смотрит на зрителя.
 export function buildArm(sx, mats, chest, restArm) {
   const g = new THREE.Group(); g.position.set(sx * 0.9, -1.38, 0.05); g.visible = false; chest.add(g);
   const upper = new THREE.Group(); g.add(upper);
@@ -30,29 +39,29 @@ export function buildArm(sx, mats, chest, restArm) {
   fore.position.y = -FOREARM / 2; addOutline(fore, 0.005); elbow.add(fore);
 
   const wrist = new THREE.Group(); wrist.position.y = -FOREARM; elbow.add(wrist);
-  // браслет в традиционном стиле (білезік): широкий золотой манжет с жемчужными кромками и красным камнем,
-  // закрывает стык предплечья и кисти со всех сторон
+
+  // браслет в традиционном стиле (білезік): широкий золотой манжет с жемчужными кромками и красным камнем
   const cuffGroup = new THREE.Group(); cuffGroup.position.y = -0.012; cuffGroup.scale.set(1.32, 1, 0.84); wrist.add(cuffGroup);
   const H = 0.13, R = 0.058;
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.05, H, 36, 1, true), mats.gold);
-  band.material = mats.gold.clone(); band.material.side = THREE.DoubleSide; cuffGroup.add(band);
-  for (const y of [H / 2, -H / 2]) {                          // золотые кромки
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.05, H, 36, 1, true), mats.gold.clone());
+  band.material.side = THREE.DoubleSide; cuffGroup.add(band);
+  for (const y of [H / 2, -H / 2]) {
     const rim = new THREE.Mesh(new THREE.TorusGeometry(R * (y > 0 ? 1 : 1.05), 0.0085, 8, 36), mats.gold);
     rim.rotation.x = Math.PI / 2; rim.position.y = y; cuffGroup.add(rim);
   }
   const pearl = new THREE.SphereGeometry(0.0075, 8, 6);
-  for (const [y, rr] of [[H / 2 - 0.016, R], [-H / 2 + 0.016, R * 1.05]]) {   // жемчужные ряды у кромок
+  for (const [y, rr] of [[H / 2 - 0.016, R], [-H / 2 + 0.016, R * 1.05]]) {
     for (let i = 0; i < 22; i++) {
       const an = (i / 22) * Math.PI * 2, m = new THREE.Mesh(pearl, mats.pearl);
       m.position.set(Math.cos(an) * rr * 1.01, y, Math.sin(an) * rr * 1.01); cuffGroup.add(m);
     }
   }
-  const dot = new THREE.SphereGeometry(0.0045, 6, 5);                            // золотая «зернь» по центру
+  const dot = new THREE.SphereGeometry(0.0045, 6, 5);
   for (let i = 0; i < 26; i++) {
     const an = (i / 26) * Math.PI * 2, m = new THREE.Mesh(dot, mats.gold);
     m.position.set(Math.cos(an) * R * 1.03, 0, Math.sin(an) * R * 1.03); cuffGroup.add(m);
   }
-  for (const side of [1, -1]) {                                                 // красный камень с лепестками спереди и сзади
+  for (const side of [1, -1]) {
     const gem = new THREE.Mesh(new THREE.SphereGeometry(0.019, 12, 8), mats.gem);
     gem.position.set(0, 0, side * R * 1.06); gem.scale.set(1, 1.15, 0.55); cuffGroup.add(gem);
     for (let k = 0; k < 6; k++) {
@@ -61,10 +70,14 @@ export function buildArm(sx, mats, chest, restArm) {
     }
   }
 
-  const hand = buildHand(-sx);               // у левой на экране руки (sx=−1) большой палец смотрит к центру
-  const handMount = new THREE.Group(); handMount.rotation.z = Math.PI; handMount.scale.setScalar(0.78); handMount.add(hand.group);
-  hand.group.position.y = 0.0; wrist.add(handMount);
-  hand.group.position.y = 0.12;              // основание кисти заходит на запястье
+  // спрайты кисти (по одному на жест), одна плоскость на всех
+  const loader = new THREE.TextureLoader(), tex = {};
+  for (const [pose, def] of Object.entries(SPRITES)) {
+    tex[pose] = loader.load(`assets/hands/${def.file}.svg`, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; });
+  }
+  const spriteMat = new THREE.MeshBasicMaterial({ map: tex.open, transparent: true, alphaTest: 0.02, color: '#e4dcd6' });   // чуть приглушаем, чтобы тон кожи совпал с освещённым лицом
+  const sprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), spriteMat);
+  sprite.renderOrder = 20; g.add(sprite);
 
   return {
     group: g,
@@ -76,7 +89,21 @@ export function buildArm(sx, mats, chest, restArm) {
       upper.rotation.z = sx * P.A * r;
       elbow.rotation.z = sx * (P.T - P.A) * r;
       wrist.rotation.z = sx * swing;
-      hand.setPose(pose); hand.update(dt);
+
+      // кисть-спрайт: поворачиваем по направлению предплечья и ставим так, чтобы запястье рисунка совпало с запястьем руки
+      const def = SPRITES[armPose] ?? SPRITES.open;
+      spriteMat.map = tex[armPose] ?? tex.open;
+      const th = sx * (P.T * r + swing);                                      // поворот предплечья от «вниз»
+      const fAngle = Math.atan2(-Math.cos(th), Math.sin(th));                 // направление предплечья (от локтя к кисти)
+      const mirror = armPose === 'like' && sx < 0;                            // кулак «лайка» должен смотреть наружу
+      const rot = fAngle - Math.atan2(def.forward[1], mirror ? -def.forward[0] : def.forward[0]);
+      const size = def.size * smooth(r * 1.4);
+      sprite.scale.set((mirror ? -1 : 1) * size, size, 1);
+      sprite.rotation.z = rot;
+      const ax = (mirror ? -1 : 1) * def.anchor[0] * size, ay = def.anchor[1] * size;
+      const c = Math.cos(rot), s = Math.sin(rot);
+      wrist.getWorldPosition(_p); g.worldToLocal(_p);
+      sprite.position.set(_p.x - (ax * c - ay * s), _p.y - (ax * s + ay * c), _p.z);
     },
   };
 }
