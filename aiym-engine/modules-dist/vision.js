@@ -120,11 +120,13 @@ export default function create() {
       angry: clamp01(avg(bs, 'browDownLeft', 'browDownRight') * 1.3 + avg(bs, 'noseSneerLeft', 'noseSneerRight') * 0.8 + avg(bs, 'eyeSquintLeft', 'eyeSquintRight') * 0.3 - smile),
     };
   }
-  const MOOD_BASE = { smile: 0.45, sad: 0.5, angry: 0.5 }, MOOD_EMO = { smile: 'happy', sad: 'sad', angry: 'angry' }, MOOD_RU = { smile: 'улыбка', sad: 'грусть', angry: 'злость' };
+  const MOOD_BASE = { smile: 0.35, sad: 0.3, angry: 0.3 }, MOOD_EMO = { smile: 'happy', sad: 'sad', angry: 'angry' }, MOOD_RU = { smile: 'улыбка', sad: 'грусть', angry: 'злость' };
   function mirrorMood(faces, t, dt) {
+    if (ui.mood && (!faces.length || !cfg('mimic', true))) ui.mood.textContent = !cfg('mimic', true) ? 'Мимика выключена' : 'Мимика: лица в кадре нет';
     if (!cfg('mimic', true) || !faces.length || t < emoLock) return;
     const f = faces.reduce((a, b) => (b.size > a.size ? b : a));          // ближайшее лицо
     if (!f.mood) return;
+    if (ui.mood) ui.mood.textContent = `Мимика (v2) → улыбка ${f.mood.smile.toFixed(2)}/${(MOOD_BASE.smile * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · грусть ${f.mood.sad.toFixed(2)}/${(MOOD_BASE.sad * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · злость ${f.mood.angry.toFixed(2)}/${(MOOD_BASE.angry * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)}  (значение/порог)`;
     const k = 1.5 - cfg('mimicSens', 5) * 0.1;                             // чувствительность 1–10 → порог ×1.4 … ×0.5
     let name = null, ratio = 0;
     for (const m of ['smile', 'sad', 'angry']) { const r = f.mood[m] / (MOOD_BASE[m] * k); if (r > 1 && r > ratio) { name = m; ratio = r; } }
@@ -132,7 +134,7 @@ export default function create() {
     if (name) {
       mimic.off = 0;
       mimic.since = mimic.cand === name ? mimic.since + dt : 0; mimic.cand = name;
-      if (mimic.since > 0.45 && mimic.cur !== name) { mimic.cur = name; ctx.avatar.setEmotion(MOOD_EMO[name], Math.min(1, 0.6 + ratio * 0.2)); ctx.bus.emit('vision.emotion', { name }); }
+      if (mimic.since > 0.3 && mimic.cur !== name) { mimic.cur = name; ctx.avatar.setEmotion(MOOD_EMO[name], Math.min(1, 0.6 + ratio * 0.2)); ctx.bus.emit('vision.emotion', { name }); }
     } else {
       mimic.cand = null; mimic.since = 0;
       if (mimic.cur !== 'neutral' && (mimic.off += dt) > 0.7) { mimic.cur = 'neutral'; ctx.avatar.setEmotion('neutral'); ctx.bus.emit('vision.emotion', { name: 'neutral' }); }
@@ -329,8 +331,8 @@ export default function create() {
     const field = (label, node, hint) => h('label', { class: 'row', style: 'flex-wrap:wrap' }, h('span', { class: 'row-text' }, h('b', {}, label), hint ? h('small', {}, hint) : null), node);
     const check = (key, def) => h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg(key, def), onchange: (e) => ctx.config.set(key, e.target.checked) }), h('span', {}));
     const text = (key, def, attrs = {}) => { const i = h('input', { class: 'text-input', value: cfg(key, def), ...attrs }); i.onchange = () => ctx.config.set(key, i.value.trim()); return i; };
-    ui.status = h('div', { class: 'hint' }); ui.info = h('div', { class: 'hint', style: 'margin-top:2px' });
-    el.append(ui.status, ui.info,
+    ui.status = h('div', { class: 'hint' }); ui.info = h('div', { class: 'hint', style: 'margin-top:2px' }); ui.mood = h('div', { class: 'hint', style: 'margin-top:2px;font-variant-numeric:tabular-nums' }, 'Мимика (v2): ждём лицо…');
+    el.append(ui.status, ui.info, ui.mood,
       field('Следить за говорящим', check('followSpeaker', true), 'Аватар поворачивается к тому, кто говорит'),
       field('Смотреть на ближайшее лицо', check('lookAtFaces', true), 'Когда никто не говорит'),
       field('Следить за движением', check('trackMotion', true), 'Для собраний: взгляд на того, кто двигается'),
