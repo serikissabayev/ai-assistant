@@ -224,6 +224,7 @@ export class Shell {
       h('section', { class: 'group' }, h('h3', {}, 'Аватар'),
         toggle('Живая анимация', 'avatar.idle', true, 'Дыхание, моргание, блуждающий взгляд'),
         toggle('Комар', 'avatar.mosquito', true, 'Изредка залетает комар: она провожает его взглядом и поворачивает голову'),
+        toggle('Писк комара', 'avatar.mosquitoSound', true, 'Характерный звук, громче когда он рядом'),
         toggle('Физика украшений', 'avatar.physics', true, 'Подвески, коса, помпон, вуаль'),
         toggle('Линия подбородка', 'avatar.guides', false, 'Тонкий пунктир-подсказка (отладка)')),
       h('section', { class: 'group' }, h('h3', {}, 'Сброс'),
