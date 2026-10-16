@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildGirl } from './buildGirl.js';
 import { VISEMES } from './Mouth.js';
+import { Mosquito } from './Mosquito.js';
 
 const clamp = THREE.MathUtils.clamp;
 const smoothstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
@@ -45,6 +46,8 @@ export class Avatar {
 
     this.rig = buildGirl();
     this.scene.add(this.rig.root);
+    this.mosquito = new Mosquito(this.scene);
+    this._face = new THREE.Vector3(); this._mq = null;
 
     this.s = {
       t: 0,
@@ -58,7 +61,7 @@ export class Avatar {
       attention: 0,
       turn: { active: false, next: 5, yaw: 0, pitch: 0, until: 0 },   // редкие случайные повороты головы
     };
-    this.opts = { idle: true, physics: true };
+    this.opts = { idle: true, physics: true, mosquito: true };
     this.viewCur = { ...VIEWS.full }; this.viewTarget = { ...VIEWS.full };
 
     this.ro = new ResizeObserver(() => this.resize());
@@ -133,7 +136,10 @@ export class Avatar {
     this.s.gesture = { name, t0: this.s.t };
   }
 
-  setOptions(o) { Object.assign(this.opts, o); this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
+  /** Комар залетает прямо сейчас (для проверки). */
+  spawnMosquito() { this.#faceCenter(); this.mosquito.spawn(this.s.t, this._face); }
+  #faceCenter() { this.rig.head.getWorldPosition(this._face); this._face.y += 0.02; this._face.z += 0.5; return this._face; }
+  setOptions(o) { Object.assign(this.opts, o); if (this.opts.mosquito === false && this.mosquito.active) this.mosquito.cancel(this.s.t); this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
   get visemeNames() { return Object.keys(VISEMES); }
 
   // ───────── Кадр ─────────
@@ -150,21 +156,33 @@ export class Avatar {
 
     // --- внимание и взгляд: ведут ГЛАЗА, голова почти всегда смотрит в центр
     const attending = t - s.gaze.set < 2.5;
+    // --- комар: изредка залетает; взгляд и голова провожают его (единственный повод для крутого поворота)
+    const mq = this.mosquito, face = this.#faceCenter();
+    if (this.opts.mosquito && !mq.active && t > mq.next && s.speech < 0.05 && !s.armG) this.spawnMosquito();
+    mq.update(dt, t, face);
+    let fly = null;
+    if (mq.active) {
+      const dx = mq.pos.x - face.x, dy = mq.pos.y - (face.y - 0.1), dz = Math.max(0.15, mq.pos.z - face.z + 0.45);
+      fly = { yaw: clamp(Math.atan2(dx, dz), -1.1, 1.1), pitch: clamp(Math.atan2(dy, dz), -0.55, 0.55), near: Math.hypot(dx, dy) < 0.3 && mq.pos.z - face.z < 0.4 };
+      if (fly.near && t - (s.flyFlinch ?? -99) > 12 && !s.gesture) { s.flyFlinch = t; this.trigger('flinch'); }
+    }
     const tr = s.turn;
     // изредка — «живой» поворот головы в случайную сторону (глаза идут первыми), потом голова возвращается в центр
     if (this.opts.idle && !tr.active && t > tr.next && s.speech < 0.05 && !s.armG) {
       const side = Math.random() < 0.5 ? -1 : 1;
-      Object.assign(tr, { active: true, yaw: side * rand(0.18, 0.42), pitch: rand(-0.04, 0.09), until: t + rand(1.4, 3.0) });
+      Object.assign(tr, { active: true, yaw: side * rand(0.04, 0.11), pitch: rand(-0.02, 0.04), until: t + rand(1.2, 2.4) });
     }
-    if (tr.active && t > tr.until) { tr.active = false; tr.next = t + rand(7, 18); }
+    if (tr.active && t > tr.until) { tr.active = false; tr.next = t + rand(14, 32); }
 
     if (this.opts.idle && !attending && !tr.active && t > s.wander.next) {   // мелкие «бегающие» взгляды одними глазами
       const look = Math.random() < 0.6;           // большую часть времени — прямой взгляд (контакт глазами)
-      s.wander.yaw = look ? rand(-0.04, 0.04) : rand(-0.2, 0.2); s.wander.pitch = look ? 0 : rand(-0.03, 0.09); s.wander.next = t + (look ? rand(2.5, 5) : rand(0.8, 1.8));
+      s.wander.yaw = look ? rand(-0.03, 0.03) : rand(-0.12, 0.12); s.wander.pitch = look ? 0 : rand(-0.03, 0.09); s.wander.next = t + (look ? rand(2.5, 5) : rand(0.8, 1.8));
     }
     const idleYaw = this.opts.idle ? s.wander.yaw : 0, idlePitch = this.opts.idle ? s.wander.pitch : 0;
     let ty, tp, hyT, hpT;
-    if (tr.active) {                              // взгляд идёт туда же, куда поворачивается голова
+    if (fly) {                                    // следим за комаром
+      ty = fly.yaw; tp = fly.pitch + EYE_CONTACT_PITCH; hyT = clamp(fly.yaw * 0.85, -LIMITS.yaw, LIMITS.yaw); hpT = -fly.pitch * 0.7;
+    } else if (tr.active) {                       // взгляд идёт туда же, куда поворачивается голова
       ty = tr.yaw; tp = tr.pitch + EYE_CONTACT_PITCH; hyT = tr.yaw * 0.8; hpT = -tr.pitch * 0.6;
     } else {
       ty = attending ? s.gaze.yaw : idleYaw; tp = (attending ? s.gaze.pitch : idlePitch) + EYE_CONTACT_PITCH;
@@ -173,7 +191,7 @@ export class Avatar {
       hyT = clamp(ty * 0.10 + over(ty) * 0.7, -LIMITS.yaw, LIMITS.yaw);
       hpT = -clamp(tp * 0.08 + over(tp) * 0.5, -LIMITS.pitch, LIMITS.pitch);
     }
-    const hRate = tr.active ? 3.2 : attending ? 3.0 : 1.8;
+    const hRate = fly ? 5 : tr.active ? 3.2 : attending ? 3.0 : 1.8;
     s.head.yaw = damp(s.head.yaw, hyT, hRate, dt);
     s.head.pitch = damp(s.head.pitch, hpT, hRate, dt);
     const ex = clamp((ty - s.head.yaw) / EYE_RANGE, -1, 1), ey = clamp((tp + s.head.pitch) / EYE_RANGE, -1, 1);
