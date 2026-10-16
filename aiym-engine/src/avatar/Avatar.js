@@ -31,10 +31,10 @@ const LIMITS = { yaw: 0.75, pitch: 0.4 };
  * (слух/речь/зрение), внутренности наружу не торчат.
  */
 export class Avatar {
-  constructor(container, { pixelRatioMax = 2, maxRender = [2560, 1440] } = {}) {
+  constructor(container, { pixelRatioMax = 2, maxRender = [2560, 1440], antialias = true } = {}) {
     this.container = container;
     this.pixelRatioMax = pixelRatioMax; this.maxRender = maxRender;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias, alpha: true, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioMax));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);

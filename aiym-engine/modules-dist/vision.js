@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.4', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.5', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -342,6 +342,8 @@ export default function create() {
       field('Следить за движением', check('trackMotion', true), 'Для собраний: взгляд на того, кто двигается'),
       field('Копировать мимику', check('mimic', true), 'Улыбка на улыбку, грусть на грусть, злость на злость (ближайшее лицо)'),
       field('Чувствительность мимики (1–10)', h('input', { type: 'range', min: 1, max: 10, step: 1, value: cfg('mimicSens', 5), oninput: (e) => ctx.config.set('mimicSens', Number(e.target.value)) }), 'Выше — реагирует на слабую мимику'),
+      field('Частота анализа камеры (кадров/с)', h('input', { type: 'range', min: 4, max: 30, value: cfg('fps', 10), oninput: (e) => ctx.config.set('fps', Number(e.target.value)) }), 'Ниже — легче для видеокарты и процессора; 10 хватает для мимики и жестов'),
+      field('Считать на', (() => { const s = h('select', { class: 'text-input' }, [['GPU', 'Видеокарте'], ['CPU', 'Процессоре (разгружает видеокарту)']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg('delegate', 'GPU'); s.onchange = () => ctx.config.set('delegate', s.value); return s; })(), 'Применится после перезагрузки страницы'),
       field('Жесты', check('gestures', true)),
       field('Строгость жестов (1–5)', h('input', { type: 'range', min: 1, max: 5, step: 1, value: cfg('strictness', 4), oninput: (e) => ctx.config.set('strictness', Number(e.target.value)) }), 'Выше — надо махать сильнее и дольше, жест держать дольше'),
       field('Реакция на недопустимый жест', check('salute', true), 'Вытянутая вперёд-вверх прямая рука: она удивляется и не здоровается'),
@@ -373,7 +375,7 @@ export default function create() {
         stat.acc += dt; stat.frames++;
         if (stat.acc >= 1) { stat.fps = Math.round(stat.frames / stat.acc); stat.frames = 0; stat.acc = 0; refreshUi(); }
         acc += dt; nowT = t;
-        if (acc < 1 / cfg('fps', 15)) return; acc = 0;
+        if (acc < 1 / cfg('fps', 10)) return; acc = 0;
         if (!video || video.readyState < 2 || !video.videoWidth || video.currentTime === lastVT) return;
         lastVT = video.currentTime;
         try { process(t); } catch (e) { ctx.log('кадр', e.message); }
