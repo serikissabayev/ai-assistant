@@ -12,6 +12,7 @@ export const EMOTIONS = {
   happy: { smile: 0.95, browUp: 0.35, browInner: 0, squint: 0.35, open: 0.05 },
   surprised: { smile: 0.1, browUp: 1, browInner: 0, squint: 0, open: 0.35 },
   sad: { smile: -0.25, browUp: 0.1, browInner: 0.8, squint: 0, open: 0 },
+  shocked: { smile: -0.3, browUp: 1, browInner: 0.55, squint: -0.45, open: 0.5 },     // шок: брови вверх, глаза широко, рот приоткрыт
   thinking: { smile: 0.05, browUp: 0.45, browInner: -0.4, squint: 0.15, open: 0 },
 };
 
@@ -53,6 +54,7 @@ export class Avatar {
       visemes: {}, mouthOpen: 0, speech: 0,
       gesture: null,
       attention: 0,
+      turn: { active: false, next: 5, yaw: 0, pitch: 0, until: 0 },   // редкие случайные повороты головы
     };
     this.opts = { idle: true, physics: true };
     this.viewCur = { ...VIEWS.full }; this.viewTarget = { ...VIEWS.full };
@@ -117,7 +119,7 @@ export class Avatar {
     for (const k of Object.keys(n)) this.s.emoTarget[k] = n[k] + (e[k] - n[k]) * weight;
   }
 
-  /** 'nod' | 'shake' | 'tilt' | 'blink' */
+  /** 'nod' | 'shake' | 'tilt' | 'blink' | 'flinch' (отшатнуться); жесты рукой: 'wave' | 'like' | 'peace' */
   trigger(name) {
     if (name === 'blink') { this.s.blink.phase = 0; return; }
     if (HAND_GESTURES[name]) {                       // жест рукой: wave | like | peace
@@ -144,19 +146,34 @@ export class Avatar {
       this.#applyView();
     }
 
-    // --- внимание и взгляд
+    // --- внимание и взгляд: ведут ГЛАЗА, голова почти всегда смотрит в центр
     const attending = t - s.gaze.set < 2.5;
-    if (this.opts.idle && !attending && t > s.wander.next) {
+    const tr = s.turn;
+    // изредка — «живой» поворот головы в случайную сторону (глаза идут первыми), потом голова возвращается в центр
+    if (this.opts.idle && !tr.active && t > tr.next && s.speech < 0.05 && !s.armG) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      Object.assign(tr, { active: true, yaw: side * rand(0.18, 0.42), pitch: rand(-0.04, 0.09), until: t + rand(1.4, 3.0) });
+    }
+    if (tr.active && t > tr.until) { tr.active = false; tr.next = t + rand(7, 18); }
+
+    if (this.opts.idle && !attending && !tr.active && t > s.wander.next) {   // мелкие «бегающие» взгляды одними глазами
       const look = Math.random() < 0.6;           // большую часть времени — прямой взгляд (контакт глазами)
       s.wander.yaw = look ? rand(-0.04, 0.04) : rand(-0.2, 0.2); s.wander.pitch = look ? 0 : rand(-0.03, 0.09); s.wander.next = t + (look ? rand(2.5, 5) : rand(0.8, 1.8));
     }
     const idleYaw = this.opts.idle ? s.wander.yaw : 0, idlePitch = this.opts.idle ? s.wander.pitch : 0;
-    const ty = attending ? s.gaze.yaw : idleYaw, tp = (attending ? s.gaze.pitch : idlePitch) + EYE_CONTACT_PITCH;
-
-    // голова догоняет медленно и берёт на себя часть угла, глаза — быстро и остаток
-    const hy = clamp(ty * 0.55, -LIMITS.yaw, LIMITS.yaw), hpch = clamp(tp * 0.5, -LIMITS.pitch, LIMITS.pitch);
-    s.head.yaw = damp(s.head.yaw, hy, attending ? 5.5 : 2.2, dt);
-    s.head.pitch = damp(s.head.pitch, -hpch, attending ? 5.5 : 2.2, dt);
+    let ty, tp, hyT, hpT;
+    if (tr.active) {                              // взгляд идёт туда же, куда поворачивается голова
+      ty = tr.yaw; tp = tr.pitch + EYE_CONTACT_PITCH; hyT = tr.yaw * 0.8; hpT = -tr.pitch * 0.6;
+    } else {
+      ty = attending ? s.gaze.yaw : idleYaw; tp = (attending ? s.gaze.pitch : idlePitch) + EYE_CONTACT_PITCH;
+      // голова следует лишь чуть-чуть (≈10% угла) и берёт на себя только то, что глаза уже не достают
+      const over = (v) => Math.sign(v) * Math.max(0, Math.abs(v) - EYE_RANGE * 0.95);
+      hyT = clamp(ty * 0.10 + over(ty) * 0.7, -LIMITS.yaw, LIMITS.yaw);
+      hpT = -clamp(tp * 0.08 + over(tp) * 0.5, -LIMITS.pitch, LIMITS.pitch);
+    }
+    const hRate = tr.active ? 3.2 : attending ? 3.0 : 1.8;
+    s.head.yaw = damp(s.head.yaw, hyT, hRate, dt);
+    s.head.pitch = damp(s.head.pitch, hpT, hRate, dt);
     const ex = clamp((ty - s.head.yaw) / EYE_RANGE, -1, 1), ey = clamp((tp + s.head.pitch) / EYE_RANGE, -1, 1);
     s.eye.x = damp(s.eye.x, ex, 22, dt); s.eye.y = damp(s.eye.y, ey, 22, dt);
 
@@ -175,21 +192,22 @@ export class Avatar {
     // --- голова: жесты, дыхание, речь
     let nod = 0, shake = 0, tilt = 0;
     if (s.gesture) {
-      const u = (t - s.gesture.t0) / 0.9;
+      const u = (t - s.gesture.t0) / (s.gesture.name === 'flinch' ? 1.9 : 0.9);
       if (u >= 1) s.gesture = null;
       else {
         const env = Math.sin(u * Math.PI);
         if (s.gesture.name === 'nod') nod = Math.sin(u * Math.PI * 2.6) * 0.14 * env;
         if (s.gesture.name === 'shake') shake = Math.sin(u * Math.PI * 3.2) * 0.2 * env;
         if (s.gesture.name === 'tilt') tilt = 0.16 * env;
+        if (s.gesture.name === 'flinch') { nod = -0.17 * Math.min(1, env * 2.2); tilt = 0.05 * env; }   // отшатнулась: голова назад
       }
     }
     const idle = this.opts.idle ? 1 : 0;
     const breathe = Math.sin(t * 1.35);
     const talk = s.speech;
-    const pitch = s.head.pitch + nod + idle * (0.012 * Math.sin(t * 0.7) + 0.006 * breathe) + talk * 0.022 * Math.sin(t * 3.4) ;
-    const yaw = s.head.yaw + shake + idle * 0.02 * Math.sin(t * 0.53) + talk * 0.03 * Math.sin(t * 2.3 + 1);
-    const roll = -s.head.yaw * 0.12 + tilt + idle * 0.018 * Math.sin(t * 0.61 + 2) + talk * 0.015 * Math.sin(t * 1.9);
+    const pitch = s.head.pitch + nod + idle * (0.014 * Math.sin(t * 0.7) + 0.008 * Math.sin(t * 1.7 + 1) + 0.006 * breathe) + talk * 0.022 * Math.sin(t * 3.4) ;
+    const yaw = s.head.yaw + shake + idle * (0.026 * Math.sin(t * 0.53) + 0.012 * Math.sin(t * 1.31 + 1)) + talk * 0.03 * Math.sin(t * 2.3 + 1);
+    const roll = -s.head.yaw * 0.12 + tilt + idle * (0.02 * Math.sin(t * 0.61 + 2) + 0.01 * Math.sin(t * 1.4)) + talk * 0.015 * Math.sin(t * 1.9);
     rig.headPivot.rotation.set(pitch, yaw, roll, 'YXZ');
     rig.chestPivot.scale.set(1 + 0.004 * breathe * idle, 1 + 0.01 * breathe * idle, 1 + 0.006 * breathe * idle);
     rig.root.position.x = idle * 0.016 * Math.sin(t * 0.37);
@@ -199,7 +217,7 @@ export class Avatar {
     const e = s.emo;
     const answering0 = Math.max(talk, s.armG ? 1 : 0);
     rig.face.update({
-      blink: b.v, gazeX: s.eye.x, gazeY: s.eye.y, squint: clamp(Math.max(e.squint, answering0 * 0.25), 0, 1),
+      blink: b.v, gazeX: s.eye.x, gazeY: s.eye.y, squint: clamp(Math.max(e.squint, answering0 * 0.25), -0.5, 1),
       browUp: e.browUp + talk * 0.08 * (0.5 + 0.5 * Math.sin(t * 4.1)), browInner: e.browInner,
     });
 
@@ -212,10 +230,11 @@ export class Avatar {
         else {
           r = u < RAISE_T ? smoothstep(u / RAISE_T) : u > ag.dur - LOWER_T ? 1 - smoothstep((u - (ag.dur - LOWER_T)) / LOWER_T) : 1;
           if (ag.name === 'wave') swing = Math.sin((u - RAISE_T) * Math.PI * 2 * 2.4) * 0.42 * smoothstep((u - RAISE_T) / 0.3) * (u < ag.dur - LOWER_T ? 1 : r);
-          if (ag.name !== 'wave') pose = u < RAISE_T + 0.25 ? 'open' : ag.pose;          // сначала поднимает раскрытую ладонь, потом складывает жест
+          if (ag.name === 'like') swing = Math.sin((u - RAISE_T) * Math.PI * 2 * 1.6) * 0.09 * smoothstep((u - RAISE_T) / 0.4);   // лёгкое «покачивание» кулаком
+          pose = ag.pose;          // сначала поднимает раскрытую ладонь, потом складывает жест
         }
       }
-      rig.arms.left.update(dt, t, r, pose, swing);
+      rig.arms.left.update(dt, t, r, pose, swing, ag?.name === 'like' ? 'like' : ag?.name === 'peace' ? 'peace' : 'open');
       rig.arms.right.update(dt, t, 0, 'open', 0);
     }
 

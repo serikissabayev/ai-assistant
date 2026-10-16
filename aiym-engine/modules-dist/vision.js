@@ -10,20 +10,27 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.1', engine: 1, category: 'input',
-  description: 'Лица, говорящий, движение, жесты и приветствие в ответ. Требует модуль «Веб-камера».',
+  id: 'vision', name: 'Зрение', version: '0.2', engine: 1, category: 'input',
+  description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
 const GESTURES = { Open_Palm: 'open_palm', Closed_Fist: 'fist', Pointing_Up: 'point_up', Thumb_Up: 'thumb_up', Thumb_Down: 'thumb_down', Victory: 'victory', ILoveYou: 'love' };
 
 export default function create() {
-  let ctx, h, cfg, video = null, face = null, hands = null, acc = 0, lastVT = -1, loadState = 'idle', stopped = false;
+  let ctx, h, cfg, video = null, face = null, hands = null, pose = null, acc = 0, lastVT = -1, loadState = 'idle', stopped = false;
   let tracks = [], nextId = 1, nowT = 0, heard = { x: 0, t: -99 }, current = null, lastLook = -99;
   const wave = [[], []], waveCool = { t: -99 }, gestureCool = {}, held = { wave: -99 };
   const motion = { prev: null, cv: null, g: null, x: 0, y: 0, amount: 0, emit: 0 };
   const stat = { hand: '—', fps: 0, frames: 0, acc: 0, faces: 0, speaker: '—', gesture: '—', model: '—' };
   let ui = {}, overlay = null, greeting = 0;
 
+  // Строгость жестов 1–5 (по умолчанию 4): чем выше, тем сильнее и дольше надо махать/держать жест, чтобы она ответила
+  const pick = (arr) => arr[Math.max(1, Math.min(5, Math.round(cfg('strictness', 4)))) - 1];
+  const T = {
+    waveRange: () => pick([0.06, 0.08, 0.10, 0.12, 0.15]), waveFlips: () => pick([2, 2, 3, 3, 4]), wavePath: () => pick([0.16, 0.22, 0.30, 0.40, 0.50]),
+    waveDur: () => pick([0.4, 0.6, 0.8, 1.0, 1.2]), handSize: () => pick([0.03, 0.04, 0.05, 0.06, 0.07]),
+    score: () => pick([0.70, 0.78, 0.85, 0.90, 0.93]), hold: () => pick([0.5, 0.6, 0.8, 1.0, 1.2]), saluteHold: () => pick([0.6, 0.8, 1.0, 1.2, 1.5]),
+  };
   const mirror = () => cfg('mirror', true);
   const toScreenX = (xi) => (mirror() ? 1 - xi : xi) * 2 - 1;
 
@@ -32,17 +39,20 @@ export default function create() {
     loadState = 'loading'; stat.model = 'загрузка…'; refreshUi();
     try {
       const base = new URL(cfg('libBase', 'vendor/mediapipe/'), location.href).href;
-      const { FilesetResolver, FaceLandmarker, GestureRecognizer } = await import(/* @vite-ignore */ `${base}vision_bundle.mjs`);
+      const { FilesetResolver, FaceLandmarker, GestureRecognizer, PoseLandmarker } = await import(/* @vite-ignore */ `${base}vision_bundle.mjs`);
       const fileset = await FilesetResolver.forVisionTasks(`${base}wasm`);
       const make = async (delegate) => {
         const f = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: `${base}face_landmarker.task`, delegate }, runningMode: 'VIDEO', numFaces: cfg('maxFaces', 4), outputFaceBlendshapes: true });
         const g = await GestureRecognizer.createFromOptions(fileset, { baseOptions: { modelAssetPath: `${base}gesture_recognizer.task`, delegate }, runningMode: 'VIDEO', numHands: 2 });
-        return [f, g, delegate];
+        let p = null;                                                   // поза тела нужна только для реакции на недопустимые жесты — без неё остальное работает
+        try { p = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: `${base}pose_landmarker_lite.task`, delegate }, runningMode: 'VIDEO', numPoses: 2 }); }
+        catch (e) { ctx.log('модель позы не загрузилась:', e.message); }
+        return [f, g, delegate, p];
       };
       let r;
       try { r = await make(cfg('delegate', 'GPU')); } catch (e) { ctx.log('GPU недоступен, перехожу на CPU:', e.message); r = await make('CPU'); }
-      if (stopped) { r[0].close(); r[1].close(); return; }
-      [face, hands] = r; loadState = 'ready'; stat.model = `готово (${r[2]})`;
+      if (stopped) { r[0].close(); r[1].close(); r[3]?.close(); return; }
+      [face, hands] = r; pose = r[3]; loadState = 'ready'; stat.model = `готово (${r[2]})`;
       ctx.log('модели загружены', r[2]);
     } catch (e) {
       loadState = 'error'; stat.model = `ошибка: ${e.message}`;
@@ -65,12 +75,13 @@ export default function create() {
       handInfo = readHands(hands.recognizeForVideo(video, ts), t);
       settleGestures(t, Math.max(0.02, t - (process.last ?? t))); process.last = t;
     }
+    if (pose && cfg('salute', true) && ++process.m % 3 === 0) checkSalute(pose.detectForVideo(video, ts), t);
     stat.faces = faces.length;
     ctx.bus.emit('vision.faces', faces.map((f) => ({ id: f.id, x: f.sx, y: f.sy, size: f.size, speaking: f.speaking })));
     decide(faces, handInfo, t);
     drawOverlay(faces);
   }
-  process.n = 0;
+  process.n = 0; process.m = 0;
 
   function trackFaces(r, t) {
     const found = (r.faceLandmarks ?? []).map((lm, i) => {
@@ -100,7 +111,7 @@ export default function create() {
   function settleGestures(t, dt) {
     for (const name of new Set([...Object.keys(holds), ...seen])) {
       holds[name] = seen.has(name) ? (holds[name] ?? 0) + dt : 0;
-      if (holds[name] > 0.5 && t - (gestureCool[name] ?? -99) > 6) {
+      if (holds[name] > T.hold() && t - (gestureCool[name] ?? -99) > 6) {
         gestureCool[name] = t; holds[name] = 0;
         const p = seenPos[name] ?? { x: 0, y: 0 };
         ctx.bus.emit('vision.gesture', { name, x: p.x, y: p.y }); stat.gesture = name;
@@ -124,21 +135,22 @@ export default function create() {
     (r.landmarks ?? []).forEach((lm, i) => {
       const g = r.gestures?.[i]?.[0], cat = g?.categoryName, name = GESTURES[cat], wrist = lm[0];
       const x = toScreenX(wrist.x), y = 1 - wrist.y * 2;
-      const open = palmOpen(lm) || (cat === 'Open_Palm' && g.score > 0.5);
+      const handSize = dist(lm[0], lm[9]);                                   // слишком маленькая (далёкая) рука не считается
+      const open = handSize >= T.handSize() && (palmOpen(lm) || (cat === 'Open_Palm' && g?.score > 0.5));
       const w = wave[i] ?? (wave[i] = []);
       if (open) {
         lastOpen[i] = t; w.push([t, wrist.x]);
-        while (w.length && t - w[0][0] > 1.6) w.shift();
+        while (w.length && t - w[0][0] > 2.2) w.shift();
         const m = waveMetrics(w);
         stat.hand = `ладонь открыта · размах ${(m.range * 100).toFixed(0)}% · смен направления ${m.flips}`;
-        if (isWave(m) && t - waveCool.t > 4) {
+        if (isWave(m) && t - waveCool.t > 5) {
           waveCool.t = t; held.wave = t; info = { name: 'wave', x, y }; w.length = 0;
           ctx.bus.emit('vision.gesture', { name: 'wave', x, y }); stat.gesture = 'помахали рукой';
           greet(t);
         }
       } else if (t - lastOpen[i] > 0.7) w.length = 0;       // одиночные промахи классификатора не сбрасывают взмах
-      if (name && name !== 'open_palm' && g.score > 0.7) seen.add(name);
-      if (name && g.score > 0.7) seenPos[name] = { x, y };
+      if (name && name !== 'open_palm' && g.score > T.score()) seen.add(name);
+      if (name && g.score > T.score()) seenPos[name] = { x, y };
       if (t - held.wave < 1.5) info = info ?? { name: 'wave', x, y };
     });
     return info;
@@ -150,9 +162,56 @@ export default function create() {
       min = Math.min(min, w[i][1]); max = Math.max(max, w[i][1]);
       if (i) { const d = w[i][1] - w[i - 1][1]; path += Math.abs(d); if (Math.abs(d) > 0.004) { const s2 = Math.sign(d); if (dir && s2 !== dir) flips++; dir = s2; } }
     }
-    return { range: w.length ? max - min : 0, path, flips, n: w.length };
+    return { range: w.length ? max - min : 0, path, flips, n: w.length, dur: w.length ? w[w.length - 1][0] - w[0][0] : 0 };
   }
-  const isWave = (m) => m.n >= 5 && m.range > 0.05 && m.path > 0.14 && m.flips >= 2;
+  const isWave = (m) => m.n >= 6 && m.dur >= T.waveDur() && m.range > T.waveRange() && m.path > T.wavePath() && m.flips >= T.waveFlips();
+
+  // ───────── недопустимый жест (вытянутая вперёд-вверх прямая рука, «римский салют») ─────────
+  // Считаем по 3D-позе тела (плечо → локоть → запястье): рука прямая, направлена к камере и вверх, держится дольше секунды.
+  // Махание, поднятая вверх рука, пожатие или «дай пять» с согнутой рукой сюда не попадают.
+  const saluteHold = {}; let saluteCool = -99;
+  const sub3 = (a, b) => [a.x - b.x, a.y - b.y, a.z - b.z], len3 = (v) => Math.hypot(v[0], v[1], v[2]);
+  function armIsSalute(sh, el, wr) {
+    const v1 = sub3(el, sh), v2 = sub3(wr, el), v = sub3(wr, sh);
+    const l1 = len3(v1), l2 = len3(v2), lv = len3(v);
+    if (l1 < 0.15 || l2 < 0.15 || lv < 0.4) return false;                                // рука должна быть вытянута
+    const bend = Math.acos(Math.max(-1, Math.min(1, (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]) / (l1 * l2))));
+    if (bend > 0.5) return false;                                                         // локоть почти прямой (< ~29°)
+    const elev = Math.atan2(-v[1], Math.hypot(v[0], v[2]));                               // угол над горизонталью (y вниз)
+    return elev > 0.2 && elev < 1.2 && Math.abs(v[2]) / lv > 0.55;                        // вверх 12–70° и в основном вдоль оси камеры
+  }
+  function checkSalute(r, t) {
+    const dt = Math.max(0.03, t - (checkSalute.last ?? t)); checkSalute.last = t;
+    const seenKeys = new Set();
+    (r.worldLandmarks ?? []).forEach((w, pi) => {
+      const lm = r.landmarks?.[pi];
+      for (const [side, [s, e, wr]] of [['L', [11, 13, 15]], ['R', [12, 14, 16]]]) {
+        const vis = Math.min(lm?.[s]?.visibility ?? 0, lm?.[e]?.visibility ?? 0, lm?.[wr]?.visibility ?? 0);
+        const key = `${pi}${side}`;
+        if (vis < 0.5 || !armIsSalute(w[s], w[e], w[wr])) continue;
+        seenKeys.add(key); saluteHold[key] = (saluteHold[key] ?? 0) + dt;
+        stat.hand = `рука вытянута вперёд-вверх ${saluteHold[key].toFixed(1)} с`;
+        if (saluteHold[key] >= T.saluteHold() && t - saluteCool > 10) {
+          saluteCool = t; saluteHold[key] = 0;
+          react('salute', { x: toScreenX(lm[0].x), y: 1 - lm[0].y * 2 }, t);
+        }
+      }
+    });
+    for (const k of Object.keys(saluteHold)) if (!seenKeys.has(k)) saluteHold[k] = 0;
+  }
+
+  // Реакция: шок — брови вверх, глаза шире, рот приоткрыт, отшатывается и смотрит на этого человека. Не здоровается, не улыбается.
+  function react(kind, at, t) {
+    const a = ctx.avatar;
+    waveCool.t = t + 3;                                                  // ближайшие секунды приветствие подавлено (чтобы не «ответить» на жест)
+    clearTimeout(greeting);
+    a.setEmotion('shocked', 1); a.trigger('flinch');
+    a.lookAtNormalized((at?.x ?? 0) * cfg('gazeGain', 1), (at?.y ?? 0) * 0.6);
+    ctx.bus.emit('vision.gesture', { name: kind, x: at?.x ?? 0, y: at?.y ?? 0 });
+    ctx.bus.emit('vision.inappropriate', { type: kind, x: at?.x ?? 0, y: at?.y ?? 0 });
+    stat.gesture = 'недопустимый жест';
+    greeting = setTimeout(() => a.setEmotion('neutral'), 4500);
+  }
 
   function greet(t) {
     if (!cfg('greet', true)) return;
@@ -241,6 +300,8 @@ export default function create() {
       field('Смотреть на ближайшее лицо', check('lookAtFaces', true), 'Когда никто не говорит'),
       field('Следить за движением', check('trackMotion', true), 'Для собраний: взгляд на того, кто двигается'),
       field('Жесты', check('gestures', true)),
+      field('Строгость жестов (1–5)', h('input', { type: 'range', min: 1, max: 5, step: 1, value: cfg('strictness', 4), oninput: (e) => ctx.config.set('strictness', Number(e.target.value)) }), 'Выше — надо махать сильнее и дольше, жест держать дольше'),
+      field('Реакция на недопустимый жест', check('salute', true), 'Вытянутая вперёд-вверх прямая рука: она удивляется и не здоровается'),
       field('Здороваться в ответ на взмах руки', check('greet', true), 'Аватар машет рукой и здоровается — только в ответ на ваш жест'),
       field('Лайк на «класс», peace на «V»', check('replyGestures', true), 'Показывает тот же жест в ответ, если его подержать полсекунды'),
       field('Фраза приветствия', text('greeting', 'Салеметсизбе')),
@@ -280,6 +341,6 @@ export default function create() {
       loadModels();
       ctx.ui.setStatus('Зрение');
     },
-    async stop() { stopped = true; try { face?.close(); hands?.close(); } catch { /* ignore */ } face = hands = null; loadState = 'idle'; video = null; },
+    async stop() { stopped = true; try { face?.close(); hands?.close(); pose?.close(); } catch { /* ignore */ } face = hands = pose = null; loadState = 'idle'; video = null; },
   };
 }

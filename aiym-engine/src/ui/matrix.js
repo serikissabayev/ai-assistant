@@ -8,7 +8,7 @@ export class MatrixField {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.cell = cell; this.interval = 1 / fps; this.acc = 0;
     this.sample = document.createElement('canvas'); this.sctx = this.sample.getContext('2d', { willReadFrequently: true });
-    this.video = null; this.mirror = true;
+    this.video = null; this.mirror = true; this.filter = true;      // filter=false → обычная картинка с камеры без «Матрицы»
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
     this.resize();
   }
@@ -47,11 +47,26 @@ export class MatrixField {
     return out;
   }
 
+  // без фильтра: обычное видео камеры (по размеру панели, зеркально)
+  #raw() {
+    const { ctx, canvas, video } = this, W = canvas.width, H = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#050706'; ctx.fillRect(0, 0, W, H);
+    if (!video || video.readyState < 2 || !video.videoWidth) return;
+    const ar = W / H, va = video.videoWidth / video.videoHeight;
+    let sw = video.videoWidth, sh = video.videoHeight, sx = 0, sy = 0;
+    if (va > ar) { sw = sh * ar; sx = (video.videoWidth - sw) / 2; } else { sh = sw / ar; sy = (video.videoHeight - sh) / 2; }
+    ctx.save();
+    if (this.mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+    ctx.restore();
+  }
+
   frame(dt) {
     this.acc += dt;
     if (this.acc < this.interval) return;
     const step = this.acc; this.acc = 0;
     const { ctx, cols, rows, cw, ch, dpr } = this;
+    if (!this.filter) { this.#raw(); return; }
     const luma = this.#luma();
 
     for (let c = 0; c < cols; c++) {
