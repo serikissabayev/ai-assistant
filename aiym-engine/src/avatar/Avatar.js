@@ -119,6 +119,10 @@ export class Avatar {
   endSpeech() { this.s.visemes = {}; this.s.mouthOpen = 0; this.s.speech = 0; }
 
   setEmotion(name, weight = 1) {
+    if (this.s.flyEmo) return;                                  // пока летит комар — мимика только злая
+    this.#emo(name === 'neutral' && this.s.afterFly ? 'grin' : name, weight);
+  }
+  #emo(name, weight = 1) {
     const e = EMOTIONS[name] ?? EMOTIONS.neutral;
     const n = EMOTIONS.neutral;
     for (const k of Object.keys(n)) this.s.emoTarget[k] = n[k] + ((e[k] ?? n[k]) - n[k]) * weight;
@@ -139,7 +143,7 @@ export class Avatar {
   /** Комар залетает прямо сейчас (для проверки). */
   spawnMosquito() { this.#faceCenter(); this.mosquito.spawn(this.s.t, this._face); }
   #faceCenter() { this.rig.head.getWorldPosition(this._face); this._face.y += 0.02; this._face.z += 0.5; return this._face; }
-  setOptions(o) { Object.assign(this.opts, o); this.mosquito.soundOn = this.opts.mosquitoSound !== false; if (this.opts.mosquito === false && this.mosquito.active) this.mosquito.cancel(this.s.t); this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
+  setOptions(o) { Object.assign(this.opts, o); this.mosquito.soundOn = this.opts.mosquitoSound !== false; if (this.opts.mosquito === false && (this.mosquito.active || this.s.afterFly)) { this.mosquito.cancel(this.s.t); this.s.flyEmo = false; this.s.afterFly = false; this.#emo('neutral'); } this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
   get visemeNames() { return Object.keys(VISEMES); }
 
   // ───────── Кадр ─────────
@@ -159,7 +163,10 @@ export class Avatar {
     // --- комар: изредка залетает; взгляд и голова провожают его (единственный повод для крутого поворота)
     const mq = this.mosquito, face = this.#faceCenter();
     if (this.opts.mosquito && !mq.active && t > mq.next && s.speech < 0.05 && !s.armG) this.spawnMosquito();
+    const was = mq.active;
     mq.update(dt, t, face);
+    if (mq.active && !s.flyEmo) { s.flyEmo = true; this.#emo('angry', 1); }                       // комар → злится
+    if (was && !mq.active) { s.flyEmo = false; s.afterFly = true; this.#emo('grin', 1); }         // улетел → широко улыбается (и дальше по умолчанию)
     let fly = null;
     if (mq.active) {
       const dx = mq.pos.x - face.x, dy = mq.pos.y - (face.y - 0.1), dz = Math.max(0.15, mq.pos.z - face.z + 0.45);

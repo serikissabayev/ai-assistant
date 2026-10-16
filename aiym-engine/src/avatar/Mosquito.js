@@ -37,12 +37,12 @@ export class Mosquito {
   update(dt, t, face) {
     if (!this.active) return;
     const p = this.pos, v = this.vel, tg = this.target;
-    if (this.phase === 'enter' && p.distanceTo(face) < 1.1) this.phase = 'hover';
+    if (this.phase === 'enter' && p.distanceTo(face) < 1.4) { this.phase = 'hover'; this.until = t + rand(1.2, 3); }     // просто пролетает: недолго у лица и дальше
     if (this.phase === 'hover' && t > this.until) { this.phase = 'exit'; this.side = -this.side; }
     if (this.phase === 'hover' || this.phase === 'enter') {
       if (t > this.retarget) {
         const near = Math.random() < 0.3;                                 // иногда подлетает совсем близко к лицу
-        tg.set(face.x + rand(-0.7, 0.7), face.y + rand(-0.45, 0.55), face.z + (near ? rand(0.12, 0.3) : rand(0.35, 0.9)));
+        tg.set(face.x + rand(-1.0, 1.0), face.y + rand(-0.6, 0.7), face.z + (near ? rand(0.12, 0.3) : rand(0.35, 0.9)));
         this.retarget = t + rand(0.25, 0.7);
       }
     } else tg.set(face.x + this.side * 3.2, face.y + 0.7, face.z + 0.6);
@@ -88,7 +88,7 @@ export class Mosquito {
     const ac = this.#audio(); if (!ac) return;
     const d = this.pos.distanceTo(face), vol = Math.max(0, 1 - d / 3.2) ** 1.5 * (this.phase === 'exit' ? 0.6 : 1);
     const now = ac.currentTime;
-    this.gain.gain.setTargetAtTime(vol * 0.09, now, 0.05);
+    this.gain.gain.setTargetAtTime(vol * 0.0675, now, 0.05);
     this.osc.frequency.setTargetAtTime(470 + this.vel.length() * 55 + Math.sin(t * 3.1) * 25, now, 0.06);
     this.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, (this.pos.x - face.x) / 1.8)), now, 0.05);
   }
