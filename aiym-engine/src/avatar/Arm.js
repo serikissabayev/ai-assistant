@@ -19,7 +19,7 @@ const ARM_POSE = {
 const SPRITES = {
   open: { file: 'wave', px: [466, 616], h: 0.712, anchor: [0.004, -0.465], forward: [0, 1], tint: '#f7e0bd' },
   peace: { file: 'peace', px: [268, 612], h: 0.74, anchor: [0.017, -0.465], forward: [0, 1], tint: '#f9e5c2' },
-  like: { file: 'like', px: [386, 523], h: 0.594, anchor: [0.442, -0.299], forward: [-0.879, 0.477], tint: '#fbe5c2', facing: 'left' },
+  like: { file: 'like', px: [386, 523], h: 0.594, anchor: [0.442, -0.36], forward: [-0.879, 0.477], tint: '#fbe5c2', facing: 'left' },
 };
 
 const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
@@ -37,15 +37,19 @@ export function buildArm(sx, mats, chest, restArm) {
   cuff.rotation.x = Math.PI / 2; cuff.position.y = -UPPER; cuff.scale.set(1, 0.9, 1); upper.add(cuff);
 
   const elbow = new THREE.Group(); elbow.position.y = -UPPER; upper.add(elbow);
-  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.034, FOREARM, 18), flatToon(PAL.skin));
-  fore.position.y = -FOREARM / 2; addOutline(fore, 0.005); elbow.add(fore);
+  const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.064, FOREARM, 24), flatToon(PAL.skin));
+  fore.position.y = -FOREARM / 2; elbow.add(fore);
+  // контур только по бокам предплечья (без торцов), иначе на запястье виден тёмный «срез»
+  const foreOutline = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.064, FOREARM, 24, 1, true), new THREE.MeshBasicMaterial({ visible: false }));
+  foreOutline.position.y = -FOREARM / 2; addOutline(foreOutline, 0.005); elbow.add(foreOutline);
 
   const wrist = new THREE.Group(); wrist.position.y = -FOREARM; elbow.add(wrist);
 
   // браслет в традиционном стиле (білезік): широкий золотой манжет с жемчужными кромками и красным камнем
-  const cuffGroup = new THREE.Group(); cuffGroup.position.y = -0.012; cuffGroup.scale.set(1.32, 1, 0.84); wrist.add(cuffGroup);
-  const H = 0.13, R = 0.058;
-  cuffGroup.position.y = H / 2 + 0.004;       // манжет целиком на стороне предплечья: ладонь начинается от его нижней кромки, не залезая под него
+  const cuffGroup = new THREE.Group(); elbow.add(cuffGroup);
+  const H = 0.11, R = 0.077;
+  // манжет закреплён на предплечье (не качается вместе с кистью) и сидит выше запястья — запястье остаётся свободным
+  cuffGroup.position.y = -FOREARM + H / 2 + 0.05;
   const band = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.05, H, 36, 1, true), mats.gold.clone());
   band.material.side = THREE.DoubleSide; cuffGroup.add(band);
   for (const y of [H / 2, -H / 2]) {
