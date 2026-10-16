@@ -61,7 +61,7 @@ export class Avatar {
       attention: 0,
       turn: { active: false, next: 5, yaw: 0, pitch: 0, until: 0 },   // редкие случайные повороты головы
     };
-    this.opts = { idle: true, physics: true, mosquito: true };
+    this.opts = { idle: true, physics: true, mosquito: true, mosquitoSound: true };
     this.viewCur = { ...VIEWS.full }; this.viewTarget = { ...VIEWS.full };
 
     this.ro = new ResizeObserver(() => this.resize());
@@ -139,7 +139,7 @@ export class Avatar {
   /** Комар залетает прямо сейчас (для проверки). */
   spawnMosquito() { this.#faceCenter(); this.mosquito.spawn(this.s.t, this._face); }
   #faceCenter() { this.rig.head.getWorldPosition(this._face); this._face.y += 0.02; this._face.z += 0.5; return this._face; }
-  setOptions(o) { Object.assign(this.opts, o); if (this.opts.mosquito === false && this.mosquito.active) this.mosquito.cancel(this.s.t); this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
+  setOptions(o) { Object.assign(this.opts, o); this.mosquito.soundOn = this.opts.mosquitoSound !== false; if (this.opts.mosquito === false && this.mosquito.active) this.mosquito.cancel(this.s.t); this.rig.physics.enabled = this.opts.physics; this.rig.guides.visible = !!this.opts.guides; }
   get visemeNames() { return Object.keys(VISEMES); }
 
   // ───────── Кадр ─────────

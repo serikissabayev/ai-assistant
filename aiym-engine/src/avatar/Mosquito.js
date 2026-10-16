@@ -10,21 +10,15 @@ export class Mosquito {
   constructor(scene) {
     const g = this.group = new THREE.Group();
     g.visible = false; g.renderOrder = 20;
-    const dark = new THREE.MeshBasicMaterial({ color: '#241a17' });
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.016, 10, 8), dark); body.scale.set(0.7, 0.7, 2.4);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), dark); head.position.z = 0.05;
-    const prob = new THREE.Mesh(new THREE.CylinderGeometry(0.0014, 0.0014, 0.05, 4), dark); prob.rotation.x = Math.PI / 2; prob.position.z = 0.08;
-    const legs = [];
-    for (const s of [-1, 1]) for (const z of [-0.025, 0, 0.025]) legs.push(0, 0, z, s * 0.04, -0.045, z + (z > 0 ? 0.03 : z < 0 ? -0.03 : 0));
-    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(legs, 3));
-    const legMesh = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: '#241a17' }));
-    const wingMat = new THREE.MeshBasicMaterial({ color: '#dfe9f2', transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
-    const wingGeo = new THREE.PlaneGeometry(0.07, 0.02); wingGeo.translate(0.035, 0, 0);
-    this.wings = [-1, 1].map((s) => { const w = new THREE.Mesh(wingGeo, wingMat); w.position.set(0, 0.012, -0.004); w.scale.x = s; g.add(w); return w; });
-    g.add(body, head, prob, legMesh);
+    // серая точка + размытый «ореол» от быстрых крыльев (мерцает и дрожит каждый кадр)
+    const tex = (stops) => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); for (const [o, col] of stops) gr.addColorStop(o, col); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+    this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex([[0, 'rgba(110,110,110,0.6)'], [0.45, 'rgba(110,110,110,0.25)'], [1, 'rgba(110,110,110,0)']]), transparent: true, depthWrite: false }));
+    this.core = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex([[0, 'rgba(70,70,70,1)'], [0.6, 'rgba(70,70,70,1)'], [1, 'rgba(70,70,70,0)']]), transparent: true, depthWrite: false }));
+    this.halo.scale.set(0.11, 0.05, 1); this.core.scale.set(0.03, 0.03, 1);
+    g.add(this.halo, this.core);
     scene.add(g);
     this.phase = 'idle'; this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.target = new THREE.Vector3();
-    this.next = rand(25, 60); this.until = 0; this.retarget = 0; this.side = 1;
+    this.next = rand(25, 60); this.soundOn = true; this.until = 0; this.retarget = 0; this.side = 1;
   }
 
   get active() { return this.phase !== 'idle'; }
@@ -37,7 +31,7 @@ export class Mosquito {
     this.phase = 'enter'; this.until = t + rand(6, 10); this.retarget = 0; this.group.visible = true;
   }
 
-  cancel(t) { this.phase = 'idle'; this.group.visible = false; this.next = t + rand(30, 80); }
+  cancel(t) { this.phase = 'idle'; this.group.visible = false; this.#mute(); this.next = t + rand(30, 80); }
 
   /** face — мировая точка у лица (центр, куда летит комар) */
   update(dt, t, face) {
@@ -63,9 +57,41 @@ export class Mosquito {
 
     const g = this.group;
     g.position.copy(p);
-    if (v.lengthSq() > 1e-4) g.lookAt(p.x + v.x, p.y + v.y, p.z + v.z);
-    g.rotateZ(Math.sin(t * 9) * 0.25);
-    const flap = Math.sin(t * 160) * 0.85;
-    this.wings[0].rotation.set(0, 0, 0.5 + flap); this.wings[1].rotation.set(0, 0, -0.5 - flap);
+    const m = this.halo.material;
+    m.rotation = Math.random() * Math.PI;                              // крылья машут быстрее кадра — ореол «дрожит»
+    const k = 0.8 + Math.random() * 0.5; this.halo.scale.set(0.17 * k, 0.065 * (2 - k), 1);
+    m.opacity = 0.7 + Math.random() * 0.3;
+    this.#sound(t, face);
   }
+
+  // ───────── писк ─────────
+  #audio() {
+    if (this.ac) return this.ac;
+    try {
+      const ac = this.ac = new AudioContext();
+      const osc = ac.createOscillator(); osc.type = 'sawtooth';
+      const lfo = ac.createOscillator(), lfoG = ac.createGain(); lfo.frequency.value = 9; lfoG.gain.value = 22; lfo.connect(lfoG); lfoG.connect(osc.frequency);
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 2.2;
+      const gain = ac.createGain(); gain.gain.value = 0;
+      const pan = ac.createStereoPanner();
+      osc.connect(bp); bp.connect(gain); gain.connect(pan); pan.connect(ac.destination);
+      osc.start(); lfo.start();
+      Object.assign(this, { osc, gain, pan });
+      const resume = () => ac.state === 'suspended' && ac.resume().catch(() => {});
+      addEventListener('pointerdown', resume, { once: true }); addEventListener('keydown', resume, { once: true }); resume();
+    } catch { this.ac = null; }
+    return this.ac;
+  }
+
+  #sound(t, face) {
+    if (!this.soundOn) { this.#mute(); return; }
+    const ac = this.#audio(); if (!ac) return;
+    const d = this.pos.distanceTo(face), vol = Math.max(0, 1 - d / 3.2) ** 1.5 * (this.phase === 'exit' ? 0.6 : 1);
+    const now = ac.currentTime;
+    this.gain.gain.setTargetAtTime(vol * 0.09, now, 0.05);
+    this.osc.frequency.setTargetAtTime(470 + this.vel.length() * 55 + Math.sin(t * 3.1) * 25, now, 0.06);
+    this.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, (this.pos.x - face.x) / 1.8)), now, 0.05);
+  }
+
+  #mute() { if (this.ac && this.gain) this.gain.gain.setTargetAtTime(0, this.ac.currentTime, 0.05); }
 }
