@@ -20,10 +20,11 @@ export class Engine {
 
     this.ui = new Shell(this);
     this.avatar = new Avatar(this.ui.avatarMount, { pixelRatioMax: this.config.get('avatar.pixelRatioMax', 2), maxRender: this.config.get('avatar.maxRender', [2560, 1440]) });
-    this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false) });
+    this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false), mosquito: this.config.get('avatar.mosquito', true) });
     this.config.onChange((path, v) => {
       if (path === 'avatar.idle') this.avatar.setOptions({ idle: v });
       if (path === 'avatar.physics') this.avatar.setOptions({ physics: v });
+      if (path === 'avatar.mosquito') this.avatar.setOptions({ mosquito: v });
       if (path === 'avatar.guides') this.avatar.setOptions({ guides: v });
     });
 
