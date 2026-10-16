@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.3', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.4', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -100,7 +100,7 @@ export default function create() {
       if (!best) { best = { id: nextId++, act: 0, jaw: f.jaw, score: 0 }; tracks.push(best); }
       used.add(best);
       best.act = best.act * 0.8 + Math.abs(f.jaw - best.jaw) * 0.2;
-      best.mood = best.mood ? { smile: best.mood.smile * 0.6 + f.mood.smile * 0.4, sad: best.mood.sad * 0.6 + f.mood.sad * 0.4, angry: best.mood.angry * 0.6 + f.mood.angry * 0.4 } : f.mood;
+      best.mood = best.mood ? { smile: best.mood.smile * 0.6 + f.mood.smile * 0.4, sad: best.mood.sad * 0.6 + f.mood.sad * 0.4, angry: best.mood.angry * 0.6 + f.mood.angry * 0.4, teeth: best.mood.teeth * 0.6 + f.mood.teeth * 0.4 } : f.mood;
       best.jaw = f.jaw; Object.assign(best, { cx: f.cx, cy: f.cy, w: f.w, h: f.h, seen: t });
       best.speaking = best.act > cfg('speakThreshold', 0.012) * 1;
       best.sx = toScreenX(best.cx); best.sy = 1 - best.cy * 2; best.size = Math.max(best.w, best.h);
@@ -116,17 +116,20 @@ export default function create() {
     const clamp01 = (v) => Math.max(0, Math.min(1, v));
     return {
       smile: clamp01(smile * 1.1),
+      teeth: clamp01(Math.max(avg(bs, 'mouthUpperUpLeft', 'mouthUpperUpRight') * 1.6, (bs.jawOpen ?? 0) * 2, avg(bs, 'mouthLowerDownLeft', 'mouthLowerDownRight') * 1.4)),   // видны ли зубы
       sad: clamp01(avg(bs, 'mouthFrownLeft', 'mouthFrownRight') * 1.8 + (bs.browInnerUp ?? 0) * 0.8 + (bs.mouthShrugLower ?? 0) * 0.3 - smile),
       angry: clamp01(avg(bs, 'browDownLeft', 'browDownRight') * 1.3 + avg(bs, 'noseSneerLeft', 'noseSneerRight') * 0.8 + avg(bs, 'eyeSquintLeft', 'eyeSquintRight') * 0.3 - smile),
     };
   }
   const MOOD_BASE = { smile: 0.35, sad: 0.3, angry: 0.3 }, MOOD_EMO = { smile: 'happy', sad: 'sad', angry: 'angry' }, MOOD_RU = { smile: 'улыбка', sad: 'грусть', angry: 'злость' };
+  const grinOn = (m) => m.smile > 0.5 && m.teeth > (mimic.cur === 'grin' ? 0.2 : 0.3);   // с гистерезисом, чтобы не мигала          // широкая улыбка с зубами
+  const emoFor = (name, m) => (name === 'smile' && grinOn(m) ? 'grin' : MOOD_EMO[name]);
   function mirrorMood(faces, t, dt) {
     if (ui.mood && (!faces.length || !cfg('mimic', true))) ui.mood.textContent = !cfg('mimic', true) ? 'Мимика выключена' : 'Мимика: лица в кадре нет';
     if (!cfg('mimic', true) || !faces.length || t < emoLock) return;
     const f = faces.reduce((a, b) => (b.size > a.size ? b : a));          // ближайшее лицо
     if (!f.mood) return;
-    if (ui.mood) ui.mood.textContent = `Мимика (v2) → улыбка ${f.mood.smile.toFixed(2)}/${(MOOD_BASE.smile * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · грусть ${f.mood.sad.toFixed(2)}/${(MOOD_BASE.sad * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · злость ${f.mood.angry.toFixed(2)}/${(MOOD_BASE.angry * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)}  (значение/порог)`;
+    if (ui.mood) ui.mood.textContent = `Мимика (v2) → улыбка ${f.mood.smile.toFixed(2)}/${(MOOD_BASE.smile * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · грусть ${f.mood.sad.toFixed(2)}/${(MOOD_BASE.sad * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)} · зубы ${f.mood.teeth.toFixed(2)} · злость ${f.mood.angry.toFixed(2)}/${(MOOD_BASE.angry * (1.5 - cfg('mimicSens', 5) * 0.1)).toFixed(2)}  (значение/порог)`;
     const k = 1.5 - cfg('mimicSens', 5) * 0.1;                             // чувствительность 1–10 → порог ×1.4 … ×0.5
     let name = null, ratio = 0;
     for (const m of ['smile', 'sad', 'angry']) { const r = f.mood[m] / (MOOD_BASE[m] * k); if (r > 1 && r > ratio) { name = m; ratio = r; } }
@@ -134,7 +137,8 @@ export default function create() {
     if (name) {
       mimic.off = 0;
       mimic.since = mimic.cand === name ? mimic.since + dt : 0; mimic.cand = name;
-      if (mimic.since > 0.3 && mimic.cur !== name) { mimic.cur = name; ctx.avatar.setEmotion(MOOD_EMO[name], Math.min(1, 0.6 + ratio * 0.2)); ctx.bus.emit('vision.emotion', { name }); }
+      const kind = emoFor(name, f.mood);
+      if (mimic.since > 0.3 && mimic.cur !== kind) { mimic.cur = kind; ctx.avatar.setEmotion(emoFor(name, f.mood), Math.min(1, 0.6 + ratio * 0.2)); ctx.bus.emit('vision.emotion', { name: kind }); }
     } else {
       mimic.cand = null; mimic.since = 0;
       if (mimic.cur !== 'neutral' && (mimic.off += dt) > 0.7) { mimic.cur = 'neutral'; ctx.avatar.setEmotion('neutral'); ctx.bus.emit('vision.emotion', { name: 'neutral' }); }
