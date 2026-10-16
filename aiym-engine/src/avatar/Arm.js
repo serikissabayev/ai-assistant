@@ -16,9 +16,9 @@ const ARM_POSE = {
 // forward — куда у рисунка «смотрит» кисть (от запястья). Один масштаб на все рисунки, чтобы рука была одного размера.
 const PX = 0.00126;            // единиц сцены на пиксель рисунка (высота ладони с пальцами ≈ 0.95)
 const SPRITES = {
-  open: { file: 'wave', px: [418, 565], anchor: [0.014, -0.44], forward: [0, 1] },
-  peace: { file: 'peace', px: [263, 587], anchor: [0.059, -0.44], forward: [0, 1] },
-  like: { file: 'like', px: [356, 471], anchor: [-0.36, -0.4], forward: [0.866, 0.5] },   // кулак смотрит вправо-вверх, запястье внизу слева
+  open: { file: 'wave', px: [418, 565], anchor: [0.014, -0.46], forward: [0, 1] },
+  peace: { file: 'peace', px: [263, 587], anchor: [0.059, -0.46], forward: [0, 1] },
+  like: { file: 'like', px: [356, 471], anchor: [-0.285, -0.345], forward: [0.866, 0.5] },   // кулак смотрит вправо-вверх, запястье внизу слева
 };
 
 const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 * x); };
@@ -44,6 +44,7 @@ export function buildArm(sx, mats, chest, restArm) {
   // браслет в традиционном стиле (білезік): широкий золотой манжет с жемчужными кромками и красным камнем
   const cuffGroup = new THREE.Group(); cuffGroup.position.y = -0.012; cuffGroup.scale.set(1.32, 1, 0.84); wrist.add(cuffGroup);
   const H = 0.13, R = 0.058;
+  cuffGroup.position.y = H / 2 + 0.004;       // манжет целиком на стороне предплечья: ладонь начинается от его нижней кромки, не залезая под него
   const band = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.05, H, 36, 1, true), mats.gold.clone());
   band.material.side = THREE.DoubleSide; cuffGroup.add(band);
   for (const y of [H / 2, -H / 2]) {
