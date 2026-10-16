@@ -131,3 +131,11 @@ input[type=range] { accent-color: var(--accent); width: 150px; }
 .toast { zoom: var(--ui, 1); padding: 12px 16px; border-radius: 12px; background: #15161af2; border: 1px solid var(--line-2); box-shadow: 0 12px 40px #0009; backdrop-filter: blur(14px); font-size: 13.5px; animation: toastin .25s; }
 .toast.ok { border-color: #4fd69c66; } .toast.err { border-color: #ff6b6b77; } .toast.out { opacity: 0; transform: translateX(12px); transition: .35s; }
 @keyframes toastin { from { opacity: 0; transform: translateX(14px); } }
+
+/* переключатель фильтра «Матрица» на панели камеры */
+.view-btn { position: absolute; z-index: 6; top: 62px; right: 24px; padding: 7px 12px; border-radius: 9px; font: 600 11px var(--mono); letter-spacing: .06em; color: #7df0ab;
+  background: #02130acc; border: 1px solid #55e79a55; backdrop-filter: blur(6px); cursor: pointer; transition: .15s; }
+.view-btn:hover { border-color: #55e79a; background: #04200f; }
+body.no-matrix .view-btn { color: #cfd3d8; border-color: #ffffff30; background: #0b0c0fcc; }
+body.no-matrix .vignette { background: radial-gradient(90% 80% at 50% 50%, transparent 70%, #00000060); }
+body.idle .view-btn { opacity: 0; pointer-events: none; }

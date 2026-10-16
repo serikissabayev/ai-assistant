@@ -38,6 +38,7 @@ export class Shell {
       setSource: (video, mirror = true) => { this.matrix.setSource(video, mirror); label.dataset.live = video ? '1' : '0'; label.textContent = video ? 'КАМЕРА · LIVE' : 'ОЖИДАНИЕ СИГНАЛА'; },
     };
     this.viewport.setSource(null);
+    this.setMatrixFilter(this.engine.config.get('ui.matrixFilter', true), false);
     this.fps = { frames: 0, acc: 0, el: $('#fps') };
     this.caption = { el: $('#caption'), timer: 0 };
     this.#wireChrome();
@@ -48,11 +49,13 @@ export class Shell {
   #wireChrome() {
     const eng = this.engine;
     $('#btn-settings').addEventListener('click', () => this.toggleDrawer());
+    $('#btn-filter').addEventListener('click', () => { this.setMatrixFilter(!this.matrix.filter); this.#renderEngine(); });
     $('#drawer-close').addEventListener('click', () => this.toggleDrawer(false));
     addEventListener('keydown', (e) => {
       if (e.target.matches('input, textarea')) return;
       if (e.key === 's' || e.key === 'S' || e.key === 'ы' || e.key === 'Ы') this.toggleDrawer();
       if (e.key === 'Escape') this.toggleDrawer(false);
+      if (e.key === 'm' || e.key === 'M' || e.key === 'ь' || e.key === 'Ь') { this.setMatrixFilter(!this.matrix.filter); this.#renderEngine(); }
       if (e.key === 'f' || e.key === 'F' || e.key === 'а' || e.key === 'А') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
     });
     // в киоске: курсор и панель сами прячутся, когда никто не трогает мышь
@@ -108,6 +111,14 @@ export class Shell {
       const files = await filesFromDrop(e.dataTransfer);
       if (files.length) this.install(files);
     });
+  }
+
+  /** Матричный фильтр на картинке с камеры: вкл — символы, выкл — обычное видео. */
+  setMatrixFilter(on, save = true) {
+    this.matrix.filter = on;
+    document.body.classList.toggle('no-matrix', !on);
+    const b = $('#btn-filter'); if (b) { b.textContent = on ? 'Фильтр «Матрица»: вкл' : 'Фильтр «Матрица»: выкл'; b.setAttribute('aria-pressed', on); }
+    if (save) this.engine.config.set('ui.matrixFilter', on);
   }
 
   applyViewport(on) { document.body.classList.toggle('no-view', !on); }
@@ -205,6 +216,8 @@ export class Shell {
           h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get('ui.showViewport', false), onchange: (e) => { cfg.set('ui.showViewport', e.target.checked); this.applyViewport(e.target.checked); } }), h('span', {}))),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Ширина аватара'), h('small', {}, 'Доля экрана слева')),
           h('input', { type: 'range', min: 30, max: 70, value: cfg.get('ui.splitRatio', 0.5) * 100, oninput: (e) => { cfg.set('ui.splitRatio', e.target.value / 100); this.applySplit(e.target.value / 100); } })),
+        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Фильтр «Матрица» на камере'), h('small', {}, 'Выкл — обычное видео с камеры (клавиша M)')),
+          h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get('ui.matrixFilter', true), onchange: (e) => this.setMatrixFilter(e.target.checked) }), h('span', {}))),
         toggle('Субтитры', 'ui.captions', true, 'Показывать реплики внизу экрана'),
         toggle('Счётчик FPS', 'ui.showFps', false),
         toggle('Прятать панель в простое', 'ui.autoHideChrome', true, 'Для режима киоска')),
@@ -214,7 +227,7 @@ export class Shell {
         toggle('Линия подбородка', 'avatar.guides', false, 'Тонкий пунктир-подсказка (отладка)')),
       h('section', { class: 'group' }, h('h3', {}, 'Сброс'),
         h('button', { class: 'btn danger', onclick: () => confirm('Сбросить все настройки движка?') && cfg.reset() }, 'Сбросить настройки')),
-      h('p', { class: 'hint' }, 'Горячие клавиши: S — настройки, F — полный экран.'));
+      h('p', { class: 'hint' }, 'Горячие клавиши: S — настройки, F — полный экран, M — фильтр «Матрица».'));
   }
 
   #renderPanels() {

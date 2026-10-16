@@ -12,6 +12,7 @@ export const EMOTIONS = {
   happy: { smile: 0.95, browUp: 0.35, browInner: 0, squint: 0.35, open: 0.05 },
   surprised: { smile: 0.1, browUp: 1, browInner: 0, squint: 0, open: 0.35 },
   sad: { smile: -0.25, browUp: 0.1, browInner: 0.8, squint: 0, open: 0 },
+  shocked: { smile: -0.3, browUp: 1, browInner: 0.55, squint: -0.45, open: 0.5 },     // шок: брови вверх, глаза широко, рот приоткрыт
   thinking: { smile: 0.05, browUp: 0.45, browInner: -0.4, squint: 0.15, open: 0 },
 };
 
@@ -117,7 +118,7 @@ export class Avatar {
     for (const k of Object.keys(n)) this.s.emoTarget[k] = n[k] + (e[k] - n[k]) * weight;
   }
 
-  /** 'nod' | 'shake' | 'tilt' | 'blink' */
+  /** 'nod' | 'shake' | 'tilt' | 'blink' | 'flinch' (отшатнуться); жесты рукой: 'wave' | 'like' | 'peace' */
   trigger(name) {
     if (name === 'blink') { this.s.blink.phase = 0; return; }
     if (HAND_GESTURES[name]) {                       // жест рукой: wave | like | peace
@@ -175,13 +176,14 @@ export class Avatar {
     // --- голова: жесты, дыхание, речь
     let nod = 0, shake = 0, tilt = 0;
     if (s.gesture) {
-      const u = (t - s.gesture.t0) / 0.9;
+      const u = (t - s.gesture.t0) / (s.gesture.name === 'flinch' ? 1.9 : 0.9);
       if (u >= 1) s.gesture = null;
       else {
         const env = Math.sin(u * Math.PI);
         if (s.gesture.name === 'nod') nod = Math.sin(u * Math.PI * 2.6) * 0.14 * env;
         if (s.gesture.name === 'shake') shake = Math.sin(u * Math.PI * 3.2) * 0.2 * env;
         if (s.gesture.name === 'tilt') tilt = 0.16 * env;
+        if (s.gesture.name === 'flinch') { nod = -0.17 * Math.min(1, env * 2.2); tilt = 0.05 * env; }   // отшатнулась: голова назад
       }
     }
     const idle = this.opts.idle ? 1 : 0;
@@ -199,7 +201,7 @@ export class Avatar {
     const e = s.emo;
     const answering0 = Math.max(talk, s.armG ? 1 : 0);
     rig.face.update({
-      blink: b.v, gazeX: s.eye.x, gazeY: s.eye.y, squint: clamp(Math.max(e.squint, answering0 * 0.25), 0, 1),
+      blink: b.v, gazeX: s.eye.x, gazeY: s.eye.y, squint: clamp(Math.max(e.squint, answering0 * 0.25), -0.5, 1),
       browUp: e.browUp + talk * 0.08 * (0.5 + 0.5 * Math.sin(t * 4.1)), browInner: e.browInner,
     });
 
