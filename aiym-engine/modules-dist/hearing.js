@@ -9,7 +9,7 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.1', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.2', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
@@ -154,10 +154,27 @@ export default function create() {
     };
     rec.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stopped = true; ctx.ui.toast('Нет доступа к распознаванию речи — разрешите микрофон.', 'err', 8000); }
-      else if (e.error === 'network') ctx.ui.toast('Распознаванию речи в браузере нужен интернет (или переключитесь на «Свой сервер»).', 'err', 7000);
+      else if (e.error === 'network') networkFallback();
     };
     rec.onend = () => { if (!stopped && rec) restartTimer = setTimeout(() => { try { rec?.start(); } catch { /* уже идёт */ } }, 300); };
     try { rec.start(); } catch (e) { ctx.log('stt start', e.message); }
+  }
+
+  // Встроенное распознавание браузера (особенно в Edge) часто отдаёт «network»: тогда сами переходим на локальный Whisper, если он запущен
+  let netWarn = -99, switching = false;
+  async function networkFallback() {
+    if (switching) return; switching = true;
+    try {
+      const url = cfg('sttUrl', 'http://localhost:8000/v1').replace(/\/+$/, '');
+      const ok = await fetch(`${url}/models`, { signal: AbortSignal.timeout(2500) }).then((r) => r.ok).catch(() => false);
+      if (ok) {
+        ctx.config.set('sttMode', 'server'); stopStt(); closeAudio(); await openAudio(); startStt();
+        ctx.ui.toast('Браузерное распознавание недоступно — перешла на локальный Whisper.', 'ok', 6000);
+      } else if (performance.now() / 1000 - netWarn > 60) {
+        netWarn = performance.now() / 1000;
+        ctx.ui.toast('Браузер не смог распознать речь (нет связи с сервисом). Запустите локальный Whisper: tools\\start_whisper.bat (установка: tools\\install_whisper.bat).', 'err', 12000);
+      }
+    } finally { switching = false; }
   }
 
   function stopStt() { clearTimeout(restartTimer); const r = rec; rec = null; try { r?.stop(); } catch { /* ignore */ } }
