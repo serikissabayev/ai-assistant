@@ -4,7 +4,7 @@
 // Слушает: speech.say {text}  — сказать (очередь), speech.stop — замолчать.
 // Выдаёт:  speech.start {text}, speech.end — вокруг каждой фразы (модуль «Слух» в это время не слушает).
 export const meta = {
-  id: 'speech', name: 'Речь', version: '0.7', engine: 1, category: 'output',
+  id: 'speech', name: 'Речь', version: '0.8', engine: 1, category: 'output',
   description: 'Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.',
 };
 
@@ -29,7 +29,7 @@ export default function create() {
   const split = (text) => text.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
 
   async function fetchWav(item) {
-    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: item.t, lang: item.lang, voice: cfg('voiceOverride', '') || 'auto', gender: ctx.engineConfig.get('avatar.gender', 'female'), speaker: cfg('speaker', '') === '' ? null : Number(cfg('speaker', '')) }) });
+    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: item.t, lang: item.lang, voice: 'auto', gender: ctx.engineConfig.get('avatar.gender', 'female'), speaker: cfg('speaker', '') === '' ? null : Number(cfg('speaker', '')) }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
     return audio.decodeAudioData(await r.arrayBuffer());
   }
@@ -126,7 +126,6 @@ export default function create() {
     el.append(
       ui.info,
       h('div', { class: 'hint', style: 'margin:2px 0 10px' }, 'Голоса закреплены за персонажем: девушка — kk raya, ru irina, en lessac; парень — kk issai-high, ru denis, en ryan. Язык берётся из текста ответа.'),
-      field('Принудительный голос', ui.voice, 'Необязательно: заменяет закреплённый голос'),
       field('Номер говорящего', h('input', { class: 'text-input', style: 'width:80px', type: 'number', min: 0, value: cfg('speaker', ''), onchange: (e) => ctx.config.set('speaker', e.target.value) }), 'Только для многоголосых моделей Piper; пусто — по умолчанию'),
       field('Громкость', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: cfg('volume', 1), oninput: (e) => { ctx.config.set('volume', Number(e.target.value)); if (gain) gain.gain.value = Number(e.target.value); } })),
       field('Проверка', test),
@@ -138,6 +137,7 @@ export default function create() {
   return {
     async start(c) {
       ctx = c; h = ctx.ui.h; cfg = ctx.config.get; stopped = false;
+      for (const k of ['voice', 'voiceOverride']) if (cfg(k, '')) ctx.config.set(k, '');          // старый ручной выбор голоса больше не действует: голос закреплён за персонажем
       audio = new AudioContext(); gain = audio.createGain(); gain.gain.value = cfg('volume', 1); gain.connect(audio.destination);
       const resume = () => audio.state === 'suspended' && audio.resume().catch(() => {});
       resume(); addEventListener('pointerdown', resume, { once: true }); addEventListener('keydown', resume, { once: true });

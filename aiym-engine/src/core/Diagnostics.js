@@ -93,11 +93,39 @@ export class Diagnostics {
     return L.join('\n');
   }
 
+  // Edge/Chrome запрещают писать в буфер после долгого ожидания (жест нажатия «протухает»): отдаём буферу обещание сразу при нажатии
   async copy() {
-    const text = await this.collect();
+    const textP = this.collect();
+    try {
+      if (window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': textP.then((t) => new Blob([t], { type: 'text/plain' })) })]);
+        this.e.ui.toast('Отчёт скопирован — вставьте его в чат (Ctrl+V)'); return await textP;
+      }
+    } catch { /* пробуем дальше */ }
+    const text = await textP;
     try { await navigator.clipboard.writeText(text); this.e.ui.toast('Отчёт скопирован — вставьте его в чат (Ctrl+V)'); }
-    catch { this.download(text); this.e.ui.toast('Не удалось скопировать — скачала файлом', 'err'); }
+    catch { this.#modal(text); }
     return text;
+  }
+
+  // Запасной вариант: отчёт в окне — нажмите «Копировать» (свежий клик всегда разрешён) или Ctrl+A, Ctrl+C
+  #modal(text) {
+    const h = this.e.ui.h;
+    const ta = h('textarea', { readonly: true, style: 'width:100%;height:55vh;background:#0b0c0f;color:#e8e6e1;border:1px solid #3a3a42;border-radius:8px;padding:10px;font:12px/1.4 monospace;box-sizing:border-box' });
+    ta.value = text;
+    const note = h('div', { style: 'margin:6px 0;color:#9a9aa3;font-size:13px' }, 'Нажмите «Копировать» и вставьте отчёт в чат (Ctrl+V).');
+    const box = h('div', { style: 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:20px' },
+      h('div', { style: 'width:min(900px,100%);background:#17171c;border:1px solid #3a3a42;border-radius:14px;padding:16px' },
+        h('b', {}, 'Отчёт диагностики'), note, ta,
+        h('div', { style: 'display:flex;gap:8px;margin-top:10px' },
+          h('button', { class: 'btn primary', onclick: async () => {
+            ta.focus(); ta.select();
+            try { await navigator.clipboard.writeText(text); note.textContent = 'Скопировано ✓ — вставьте в чат (Ctrl+V).'; }
+            catch { document.execCommand('copy') ? (note.textContent = 'Скопировано ✓ — вставьте в чат (Ctrl+V).') : (note.textContent = 'Текст выделен — нажмите Ctrl+C.'); }
+          } }, 'Копировать'),
+          h('button', { class: 'btn', onclick: () => this.download(text) }, 'Скачать .txt'),
+          h('button', { class: 'btn', onclick: () => box.remove() }, 'Закрыть'))));
+    document.body.append(box); ta.focus(); ta.select();
   }
 
   async downloadReport() { this.download(await this.collect()); }

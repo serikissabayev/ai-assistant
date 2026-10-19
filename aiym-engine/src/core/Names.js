@@ -39,3 +39,40 @@ export function spoken(gender, display, lang) {
   const t = NAME_TABLE[gender] ?? NAME_TABLE.female;
   return display === t.display || !display ? (t[lang] ?? t.ru) : display;
 }
+
+// ───────── «Позови …»: вызов персонажа голосом на казахском, русском и английском ─────────
+// Нужен глагол вызова И имя в одной короткой фразе. Просто назвать имя («Нуртуган, как дела?») — не вызов, чтобы смена не срабатывала случайно.
+const SUMMON_STEMS = [
+  // русский
+  'позов', 'позв', 'зови', 'зовите', 'вызов', 'вызв', 'пригласи', 'приглас', 'покаж', 'верни', 'смени', 'замени', 'поменя', 'включи', 'дай', 'давай', 'позвон', 'поговор', 'пообща', 'пусть', 'хочу', 'приход', 'прид', 'выйд', 'выход', 'появ',
+  // қазақша
+  'шақыр', 'келсін', 'келші', 'шықсын', 'шық', 'көрсет', 'ауыстыр', 'алмастыр', 'сөйлес', 'сөйле', 'қосыңыз', 'қос',
+  // English
+  'call', 'summon', 'bring', 'get', 'show', 'switch', 'swap', 'change', 'put', 'let', 'talk', 'speak', 'come', 'send', 'invite', 'want',
+].map(norm);
+const NEG_BEFORE = new Set(['не', 'донт', 'нот', 'невер', 'ненадо', 'нельзя'].map(norm));
+const NEG_SUFFIX = ['ма', 'ме', 'ба', 'бе', 'па', 'пе'];
+
+/** Кого зовут голосом: 'female' | 'male' | null. */
+export function summons(text, names) {
+  const words = String(text).toLowerCase().split(/[^\p{L}]+/u).filter(Boolean).map(norm).filter(Boolean);
+  if (!words.length || words.length > 12) return null;
+  let verb = false;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i], st = SUMMON_STEMS.find((s) => w.startsWith(s));
+    if (!st) continue;
+    const rest = w.slice(st.length);
+    if (/^(ма|ме|ба|бе|па|пе)/.test(rest) && w.startsWith(norm('шақыр'))) continue;      // «шақырма» — не зови
+    if ([words[i - 1], words[i - 2]].some((p) => p && NEG_BEFORE.has(p))) continue;
+    verb = true; break;
+  }
+  if (!verb) return null;
+  const hit = (g) => {
+    const stems = [...new Set([...variants(g, names?.[g]).map(norm), ...(NAME_TABLE[g]?.aliases ?? []).map(norm)])].filter((x) => x.length >= 4);
+    const grams = [...words, ...words.slice(1).map((w, i) => words[i] + w)];      // «нур туган»
+    return grams.findIndex((w) => stems.some((n) => w.startsWith(n.length <= 5 ? n.slice(0, -1) : n.slice(0, -2)) || (w.length >= 5 && lev(w.slice(0, n.length), n) <= 1)));
+  };
+  const f = hit('female'), m = hit('male');
+  if (f < 0 && m < 0) return null;
+  return f < 0 ? 'male' : m < 0 ? 'female' : f < m ? 'female' : 'male';
+}

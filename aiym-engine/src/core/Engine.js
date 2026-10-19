@@ -6,7 +6,7 @@ import { Avatar } from '../avatar/Avatar.js';
 import { Shell } from '../ui/Shell.js';
 import { SpeechSim } from './SpeechSim.js';
 import { Diagnostics } from './Diagnostics.js';
-import { DEFAULT_DISPLAY, LEGACY_DISPLAY, variants, mentions, spoken } from './Names.js';
+import { DEFAULT_DISPLAY, LEGACY_DISPLAY, variants, mentions, spoken, summons } from './Names.js';
 import { commandOf, stopAck } from './Commands.js';
 
 export const ENGINE_VERSION = '0.1.0';
@@ -35,7 +35,7 @@ export class Engine {
     this.#syncName();
     this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false), mosquito: this.config.get('avatar.mosquito', true), mosquitoSound: this.config.get('avatar.mosquitoSound', true) });
     this.config.onChange((path, v) => {
-      if (path === 'avatar.gender') { this.#genderAt = performance.now(); this.avatar.setGender(v); this.#syncName(); this.bus.emit('avatar.gender', { gender: v }); }
+      if (path === 'avatar.gender') { this.#genderAt = performance.now(); this.#swapAvatar(v); this.#syncName(); this.bus.emit('avatar.gender', { gender: v }); }
       if (path === 'avatar.quality') setTimeout(() => location.reload(), 200);          // разрешение и сглаживание применяются при старте
       if (path === 'avatar.idle') this.avatar.setOptions({ idle: v });
       if (path === 'avatar.physics') this.avatar.setOptions({ physics: v });
@@ -73,6 +73,7 @@ export class Engine {
     this.config.set('assistant.names', names); this.config.set('assistant.name', cur);
     this.config.set('assistant.spoken', { kk: spoken(g, cur, 'kk'), ru: spoken(g, cur, 'ru'), en: spoken(g, cur, 'en') });   // как произносить имя на каждом языке
     this.config.set('assistant.variants', variants(g, cur));
+    this.config.set('assistant.allVariants', [...variants('female', names.female), ...variants('male', names.male)]);        // оба персонажа: для подстановки имени в свой текст характера
     const el = document.querySelector('#name'); if (el) el.textContent = cur;
   }
 
@@ -103,14 +104,26 @@ export class Engine {
       if (cmd === 'stop') p.handled = true;                                // чистое «стоп» модели не отправляем
     } else if (p.selfSpeaking) p.ignore = true;                           // услышано во время её речи и не команда — скорее всего эхо
     if (!p.final || p.ignore) return;
-    const g = this.config.get('avatar.gender', 'female'), other = g === 'female' ? 'male' : 'female', names = this.#names();
-    const own = mentions(p.text, g, names[g]), oth = mentions(p.text, other, names[other], 3);       // другого зовём, только если имя в начале фразы
-    p.addressed = own || oth;
-    if (oth && !own && this.config.get('assistant.switchByName', true) && !p.selfSpeaking && performance.now() - this.#genderAt > 15000) {   // и не сразу после ручного выбора
-      this.bus.emit('assistant.switch', { from: g, to: other, text: p.text });
-      this.ui.toast(`Позвали «${names[other]}» — переключаюсь`);
-      this.config.set('avatar.gender', other); p.switchedTo = other;
-    }
+    const g = this.config.get('avatar.gender', 'female'), names = this.#names();
+    p.addressed = mentions(p.text, g, names[g]) || mentions(p.text, g === 'female' ? 'male' : 'female', names[g === 'female' ? 'male' : 'female'], 3);
+    const to = !p.selfSpeaking && this.config.get('assistant.switchByName', true) ? summons(p.text, names) : null;        // только «позови …», а не просто имя
+    if (to && to !== g && performance.now() - this.#genderAt > 2500) {
+      this.bus.emit('assistant.switch', { from: g, to, text: p.text });
+      this.ui.toast(`Позвали «${names[to]}» — меняемся`);
+      this.config.set('avatar.gender', to); p.switchedTo = to; p.addressed = true;
+    } else if (to === g) p.addressed = true;
+  }
+
+  // Смена персонажа: старый растворяется, новый проявляется
+  #swapTok = 0;
+  #swapAvatar(g) {
+    const cv = this.avatar.renderer?.domElement ?? this.ui.avatarMount.querySelector('canvas'), tok = ++this.#swapTok;
+    if (!cv || this.avatar.gender === g) { this.avatar.setGender(g); return; }
+    cv.style.transition = 'opacity .35s ease'; cv.style.opacity = '0';
+    setTimeout(() => {
+      if (tok !== this.#swapTok) return;
+      this.avatar.setGender(g); cv.style.opacity = '1';
+    }, 380);
   }
 
   // Модули из папки движка (Слух, Зрение, Речь, Мозг) обновляются сами, если на сервере версия новее: кнопку «Обновить» жать не нужно
