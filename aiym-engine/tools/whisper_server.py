@@ -6,7 +6,7 @@
             WHISPER_PORT (8000), WHISPER_DEVICE (auto | cpu | cuda).
 Казахский (kk), русский (ru) и английский (en) Whisper понимает; для казахского лучше medium и выше.
 """
-import collections, io, json, os, sys, threading, traceback
+import collections, io, json, os, re, sys, threading, traceback
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +17,7 @@ DEVICE = os.environ.get('WHISPER_DEVICE', 'auto')
 THREADS = int(os.environ.get('WHISPER_THREADS', max(4, (os.cpu_count() or 8) // 2)))     # на процессоре используем много ядер
 # подсказка модели: имя ассистента и тематика — меньше «Зайыметсі збер», точнее «Адина»
 PROMPTS = {'kk': 'Сәлеметсіз бе. Қазақстандағы ақпараттық технологиялар және жасанды зерде орталығы.', 'ru': 'Здравствуйте. Центр информационных технологий и искусственного интеллекта.', 'en': 'Hello.'}          # имён персонажей здесь нет намеренно
+KK_BOOST = float(os.environ.get('WHISPER_KK_BOOST', '4'))      # во сколько раз поднять вероятность казахского при автоопределении
 LANGS = [x.strip() for x in os.environ.get('WHISPER_LANGS', 'kk,ru,en').split(',') if x.strip()]      # из каких языков выбирать при автоопределении
 STUB = os.environ.get('WHISPER_STUB') == '1'        # для проверки без модели
 _lock = threading.Lock(); _model = None
@@ -66,12 +67,14 @@ def wav_to_array(data):
     if rate != 16000 and len(a): a = np.interp(np.linspace(0, len(a) - 1, int(len(a) * 16000 / rate)), np.arange(len(a)), a).astype(np.float32)
     return a
 
+KK_RE = re.compile('[әіңғүұқөһӘІҢҒҮҰҚӨҺ]')
+
 def detect_language(audio):
     """Автоопределение среди kk / ru / en (общий детектор Whisper часто путает похожие языки)."""
     if audio is None or len(audio) < 1600: return None
     try:
         _, _, probs = model().detect_language(audio)
-        best = max(((p, l) for l, p in probs if l in LANGS), default=None)
+        best = max(((p * (KK_BOOST if l == 'kk' else 1), l) for l, p in probs if l in LANGS), default=None)      # казахский Whisper недооценивает — подтягиваем
         return best[1] if best else None
     except Exception as e:
         print('определение языка не удалось:', repr(e)[:120], flush=True); return None
@@ -86,7 +89,9 @@ def transcribe(data, language):
         for attempt in (1, 2):
             try:
                 segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False, initial_prompt=PROMPTS.get(language or ''))
-                return ' '.join(s.text.strip() for s in segs).strip(), language
+                text = ' '.join(s.text.strip() for s in segs).strip()
+                if language != 'kk' and KK_RE.search(text): language = 'kk'          # в тексте казахские буквы — значит казахский
+                return text, language
             except RuntimeError as e:
                 if attempt == 1 and DEVICE != 'cpu' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')):
                     to_cpu(str(e)); continue
