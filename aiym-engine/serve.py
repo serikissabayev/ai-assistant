@@ -19,9 +19,10 @@ def pick_voice(want, text):
     vs = list_voices()
     if want and want != 'auto' and want in vs: return want
     lang = 'kk' if re.search('[әіңғүұқөһӘІҢҒҮҰҚӨҺ]', text) else 'ru' if re.search('[а-яёА-ЯЁ]', text) else 'en'
+    rank = lambda v: next((i for i, q in enumerate(('-high', '-medium', '-low', '-x_low')) if v.endswith(q)), 9)
     for pref in (lang, 'kk' if lang == 'ru' else 'ru', ''):
-        for v in vs:
-            if v.startswith(pref): return v
+        cand = sorted((v for v in vs if v.startswith(pref)), key=rank)           # сначала лучшее качество
+        if cand: return cand[0]
     return None
 
 def piper_python():
