@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.15', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.16', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -23,13 +23,18 @@ const guessLang = (t) => (KK_LETTERS.test(t) ? 'kk' : /[а-яё]/i.test(t) ? 'ru
 const KK_WORDS = new Set(['мен', 'сен', 'сиз', 'биз', 'олар', 'бар', 'жок', 'жоқ', 'бе', 'ма', 'ме', 'па', 'пе', 'ба', 'кім', 'ким', 'неге', 'кайда', 'калай', 'канша', 'кашан', 'деп', 'жане', 'туралы', 'керек', 'айтшы', 'айтып', 'бер', 'беріңіз', 'рахмет', 'салем', 'салеметсиз', 'иа', 'жаксы', 'атын', 'атың', 'атынды', 'сенин', 'менин', 'бизге', 'маган', 'саган', 'осы', 'бул', 'анау', 'кандай', 'нешe', 'болады', 'емес', 'гой', 'шы', 'ши']);
 /** Язык реплики: казахские буквы и слова важнее метки распознавателя (он путает kk и ru). */
 function langOf(text, hint) {
-  if (KK_LETTERS.test(text)) return 'kk';
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  if (KK_LETTERS.test(text)) {
+    const cyr = words.filter((w) => /[а-яёәіңғүұқөһ]/.test(w)), kkw = cyr.filter((w) => KK_LETTERS.test(w) || KK_WORDS.has(w));
+    return cyr.length >= 4 && kkw.length / cyr.length < 0.3 ? 'ru' : 'kk';      // одно казахское слово в русской фразе — фраза всё равно русская
+  }
   const kk = words.filter((w) => KK_WORDS.has(w)).length;
   if (/[а-яё]/i.test(text) && (kk >= 2 || (kk >= 1 && words.length <= 4))) return 'kk';
   if (hint === 'ru' && !/[а-яё]/i.test(text) && /[a-z]/i.test(text)) return 'en';
   return hint || guessLang(text);
 }
+const KK2RU = { ә: 'а', і: 'и', ң: 'н', ғ: 'г', ү: 'у', ұ: 'у', қ: 'к', ө: 'о', һ: 'х', Ә: 'А', І: 'И', Ң: 'Н', Ғ: 'Г', Ү: 'У', Ұ: 'У', Қ: 'К', Ө: 'О', Һ: 'Х' };
+const toRu = (t) => t.replace(/[әіңғүұқөһӘІҢҒҮҰҚӨҺ]/g, (c) => KK2RU[c]);
 // подсказка прямо в последней реплике: маленькие модели слушаются её лучше, чем системного текста (в историю не пишется)
 const LANG_HINT = { kk: '(Қазақша жауап бер.)', ru: '(Ответь по-русски.)', en: '(Answer in English.)' };
 const LANG_LINE = { kk: 'Пайдаланушы қазір қазақша сөйлеп тұр — қазақша жауап бер.', ru: 'Пользователь сейчас говорит по-русски — отвечай по-русски.', en: 'The user is speaking English now — reply in English.' };
@@ -167,13 +172,13 @@ export default function create() {
   // имя персонажа в ответе — в написании под язык ответа (для правильного произношения): Әдина / Адина / Adina, Нұртуған / Нуртуган / Nurtogee
   function fixName(text, userLang) {
     const sp = spokenNames(), vars = ctx.engineConfig.get('assistant.variants', []);
-    if (!sp || !vars.length) return { text, lang: /[а-яёa-z]/i.test(text) ? langOf(text, null) : userLang };
+    if (!sp || !vars.length) { const l = /[а-яёa-z]/i.test(text) ? langOf(text, null) : userLang; return { text: l === 'ru' ? toRu(text) : text, lang: l }; }
     const re = (v) => new RegExp(`(?<![\\p{L}])${esc(v)}`, 'giu');
     const bare = vars.reduce((t, v) => t.replace(re(v), ' '), text);                      // язык определяем без самого имени (в нём бывают казахские буквы)
     const lang = /[а-яёa-z]/i.test(bare) || KK_LETTERS.test(bare) ? langOf(bare, null) : userLang;      // язык озвучки — по самому ответу: русский текст читает русский голос, даже если спрашивали по-казахски
     const to = sp[lang] ?? sp.ru;
     for (const v of vars) text = text.replace(re(v), to);
-    return { text, lang };
+    return { text: lang === 'ru' ? toRu(text) : text, lang };
   }
 
 
