@@ -6,7 +6,7 @@
             WHISPER_PORT (8000), WHISPER_DEVICE (auto | cpu | cuda).
 Казахский (kk), русский (ru) и английский (en) Whisper понимает; для казахского лучше medium и выше.
 """
-import io, json, os, sys, threading
+import io, json, os, sys, threading, traceback
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -63,7 +63,7 @@ class H(BaseHTTPRequestHandler):
             print(f'[{lang}] {text}', flush=True)
             self._send(200, {'text': text})
         except Exception as e:
-            print('ОШИБКА:', e, flush=True); self._send(500, {'error': str(e)})
+            traceback.print_exc(); print('ОШИБКА:', repr(e), flush=True); self._send(500, {'error': f'{type(e).__name__}: {e}'[:300]})
 
 if __name__ == '__main__':
     if not STUB:

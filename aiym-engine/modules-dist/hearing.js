@@ -9,7 +9,7 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.2', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.3', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
@@ -195,7 +195,7 @@ export default function create() {
       const lang = cfg('lang', 'ru-RU').slice(0, 2); if (lang) fd.append('language', lang);
       const key = cfg('sttKey', '');
       const r = await fetch(`${cfg('sttUrl', 'http://localhost:8000/v1').replace(/\/+$/, '')}/audio/transcriptions`, { method: 'POST', body: fd, headers: key ? { Authorization: `Bearer ${key}` } : {} });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${((await r.json().catch(() => ({}))).error ?? '').slice(0, 200)}`);
       const text = ((await r.json()).text ?? '').trim();
       if (text) emitText(text, true, 1);
     } catch (e) { ctx.ui.toast(`Сервер распознавания не отвечает: ${e.message}`, 'err', 6000); }
