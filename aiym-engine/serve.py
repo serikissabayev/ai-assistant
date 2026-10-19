@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Локальный сервер без кэша: правки модулей видны сразу после перезагрузки страницы."""
-import sys, json, pathlib, os, re, shutil, subprocess, tempfile, urllib.request, urllib.error
+import sys, json, pathlib, os, re, shutil, subprocess, tempfile, threading, urllib.request, urllib.error
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -24,15 +24,46 @@ def pick_voice(want, text):
             if v.startswith(pref): return v
     return None
 
+def piper_python():
+    """Python из .venv (там стоит piper-tts) или PIPER_PYTHON."""
+    for c in (os.environ.get('PIPER_PYTHON'), str(ROOT / '.venv/Scripts/python.exe'), str(ROOT / '.venv/bin/python')):
+        if c and pathlib.Path(c).exists(): return c
+    return None
+
+_worker = None
+_wlock = threading.Lock()
+
+def _worker_call(req):
+    """Один постоянный процесс Piper; при падении перезапускаем один раз."""
+    global _worker
+    for attempt in (1, 2):
+        try:
+            if _worker is None or _worker.poll() is not None:
+                _worker = subprocess.Popen([piper_python(), str(ROOT / 'tools/piper_worker.py')], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                           stderr=subprocess.DEVNULL, text=True, encoding='utf-8', bufsize=1)
+            _worker.stdin.write(json.dumps(req) + '\n'); _worker.stdin.flush()
+            line = _worker.stdout.readline()
+            if not line: raise RuntimeError('процесс Piper завершился')
+            return json.loads(line)
+        except Exception as e:
+            try: _worker.kill()
+            except Exception: pass
+            _worker = None
+            if attempt == 2: return {'error': f'Piper не запустился: {e}'}
+
 def synth(text, voice):
-    pb = piper_bin()
-    if not pb: raise RuntimeError('Piper не установлен: запустите tools/install_piper.sh')
+    py, pb = piper_python(), piper_bin()
+    if not py and not pb: raise RuntimeError('Piper не установлен: запустите tools/install_piper.bat (Windows) или tools/install_piper.sh')
     v = pick_voice(voice, text)
-    if not v: raise RuntimeError('Нет голосов в aiym-engine/voices/ (tools/install_piper.sh)')
+    if not v: raise RuntimeError('Нет голосов в aiym-engine/voices/ (tools/install_piper)')
     with tempfile.TemporaryDirectory() as d:
         out = pathlib.Path(d) / 'o.wav'
-        r = subprocess.run([pb, '-m', str(VOICES / (v + '.onnx')), '-f', str(out)], input=text.encode('utf-8'), capture_output=True, timeout=120)
-        if r.returncode or not out.exists(): raise RuntimeError('Piper: ' + r.stderr.decode('utf-8', 'ignore')[-300:])
+        if py:
+            with _wlock: r = _worker_call({'model': str(VOICES / (v + '.onnx')), 'text': text, 'out': str(out)})
+            if 'error' in r: raise RuntimeError(f"Piper ({v}): {r['error']} | текст: {text[:60]!r}")
+        else:
+            r = subprocess.run([pb, '-m', str(VOICES / (v + '.onnx')), '-f', str(out)], input=text.encode('utf-8'), capture_output=True, timeout=120)
+            if r.returncode or not out.exists(): raise RuntimeError('Piper: ' + r.stderr.decode('utf-8', 'ignore')[-300:])
         return out.read_bytes(), v
 
 class Handler(SimpleHTTPRequestHandler):
@@ -74,7 +105,7 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.split('?')[0] == '/api/proxy': return self._proxy()
         if self.path.split('?')[0].rstrip('/') == '/api/voices':
-            return self._json(200, {'piper': bool(piper_bin()), 'voices': list_voices()})
+            return self._json(200, {'piper': bool(piper_bin() or piper_python()), 'voices': list_voices()})
         if self.path.split('?')[0].rstrip('/') == '/api/modules':
             mods = []
             for mj in sorted(pathlib.Path('modules').glob('*/module.json')):
