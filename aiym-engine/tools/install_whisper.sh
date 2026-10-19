@@ -3,5 +3,5 @@
 set -e
 cd "$(dirname "$0")/.."
 python3 -m venv .venv
-.venv/bin/pip install -q --upgrade pip faster-whisper
+.venv/bin/pip install --upgrade pip faster-whisper
 echo "Готово. Запуск: ./tools/start_whisper.sh"
