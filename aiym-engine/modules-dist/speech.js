@@ -4,7 +4,7 @@
 // Слушает: speech.say {text}  — сказать (очередь), speech.stop — замолчать.
 // Выдаёт:  speech.start {text}, speech.end — вокруг каждой фразы (модуль «Слух» в это время не слушает).
 export const meta = {
-  id: 'speech', name: 'Речь', version: '0.1', engine: 1, category: 'output',
+  id: 'speech', name: 'Речь', version: '0.2', engine: 1, category: 'output',
   description: 'Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.',
 };
 
@@ -34,6 +34,16 @@ export default function create() {
     return audio.decodeAudioData(await r.arrayBuffer());
   }
 
+  // ошибку озвучки показываем не чаще раза в минуту, с подсказкой под систему пользователя
+  let lastWarn = -99;
+  function warn(msg) {
+    if (performance.now() / 1000 - lastWarn < 60) return;
+    lastWarn = performance.now() / 1000;
+    const win = /win/i.test(navigator.platform);
+    const hint = /Piper|голос/i.test(msg) ? ` Установка голоса: ${win ? 'tools\\install_piper.bat' : './tools/install_piper.sh'}, затем перезапуск движка.` : '';
+    ctx.ui.toast(`Речь: ${msg.replace(/: запустите tools\/install_piper\.sh/, '')}.${hint} Пока она двигает губами без звука.`, 'err', 9000);
+  }
+
   async function run() {
     if (busy) return; busy = true;
     ctx.bus.emit('speech.start', { text: queue.join(' ') });
@@ -43,7 +53,7 @@ export default function create() {
       const buf = await (pre?.text === text ? pre.p : fetchWav(text).catch((e) => e));
       pre = queue.length ? { text: queue[0], p: fetchWav(queue[0]).catch((e) => e) } : null;
       if (stopped) break;
-      if (buf instanceof Error) { ctx.ui.toast(`Речь: ${buf.message}`, 'err', 6000); await silent(text); continue; }   // хотя бы губами
+      if (buf instanceof Error) { warn(buf.message); await silent(text); continue; }   // хотя бы губами
       await play(text, buf);
     }
     ctx.avatar.endSpeech(); busy = false; cur = null;

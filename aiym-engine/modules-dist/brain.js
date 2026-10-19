@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.1', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.2', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -53,7 +53,7 @@ export default function create() {
     ctx.ui.setCaption(text, { role: 'user', hold: 3 });
     history.push({ role: 'user', content: text });
     history = history.slice(-cfg('history', 8) * 2);
-    let full = '', buf = '', first = true;
+    let full = '', buf = '', first = true; const t0 = performance.now(); let tFirst = 0;
     const say = (s) => { s = clean(s); if (s.length > 1) { ctx.bus.emit('speech.say', { text: s }); } };
     try {
       const r = await request('/chat/completions', {
@@ -72,14 +72,14 @@ export default function create() {
           const d = row.slice(5).trim(); if (d === '[DONE]') continue;
           let tok = ''; try { tok = JSON.parse(d).choices?.[0]?.delta?.content ?? ''; } catch { continue; }
           if (!tok) continue;
-          if (first) { first = false; ctx.avatar.setEmotion('neutral'); }
+          if (first) { first = false; tFirst = performance.now() - t0; ctx.avatar.setEmotion('neutral'); }
           full += tok; buf += tok;
           for (let cut; (cut = sentenceEnd(buf)) > 0; ) { say(buf.slice(0, cut)); buf = buf.slice(cut); }      // целая фраза готова — сразу озвучиваем
         }
       }
       if (buf.trim()) say(buf);
-      if (full.trim()) { history.push({ role: 'assistant', content: full.trim() }); ctx.bus.emit('brain.reply', { text: clean(full) }); }
-      status('готов');
+      if (full.trim()) { history.push({ role: 'assistant', content: full.trim() }); ctx.bus.emit('brain.reply', { text: clean(full), ms_first_token: Math.round(tFirst), ms_total: Math.round(performance.now() - t0), chars: full.length }); }
+      status(`готов (первый токен ${Math.round(tFirst)} мс, всего ${Math.round(performance.now() - t0)} мс)`);
     } catch (e) {
       if (e.name === 'AbortError') return;
       history.pop();
