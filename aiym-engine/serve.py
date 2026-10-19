@@ -8,7 +8,7 @@ VOICES = ROOT / 'voices'
 
 def piper_bin():
     """Ищем Piper: PIPER_BIN, затем .venv рядом, затем PATH."""
-    for c in (os.environ.get('PIPER_BIN'), str(ROOT / '.venv/bin/piper'), shutil.which('piper')):
+    for c in (os.environ.get('PIPER_BIN'), str(ROOT / '.venv/bin/piper'), str(ROOT / '.venv/Scripts/piper.exe'), shutil.which('piper')):
         if c and pathlib.Path(c).exists(): return c
     return None
 
