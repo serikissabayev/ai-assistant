@@ -6,13 +6,13 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.2', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.3', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
 const DEFAULT_PROMPT = `Ты — Айым, голосовой ассистент IT/AI-хаба в Казахстане. Ты вежливая, добрая, с лёгким юмором.
 Отвечай на том языке, на котором к тебе обратились (қазақша, русский или English). Говори коротко: 1–3 предложения, как в живом разговоре.
-Не используй markdown, списки, эмодзи и ссылки — твой ответ озвучивается голосом. Если не знаешь — честно скажи.`;
+Не используй markdown, списки, эмодзи и ссылки — твой ответ озвучивается голосом. Если не знаешь или не уверена — честно скажи, не выдумывай. Не повторяй вопрос и не пиши бессмысленных слов.`;
 
 // чистим то, что нельзя произносить
 const clean = (t) => t.replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>~]+/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1')
@@ -58,7 +58,7 @@ export default function create() {
     try {
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
-        body: JSON.stringify({ model: cfg('model', 'llama-3.1-kazllm-1.0-8b4'), stream: true, temperature: cfg('temperature', 0.7), max_tokens: cfg('maxTokens', 220),
+        body: JSON.stringify({ model: cfg('model', 'llama-3.1-kazllm-1.0-8b4'), stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
           messages: [{ role: 'system', content: cfg('system', DEFAULT_PROMPT) }, ...history] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
@@ -113,7 +113,7 @@ export default function create() {
     el.append(ui.info, ui.status, ui.models,
       field('Адрес сервера', input('url', 'http://localhost:1235/v1', { style: 'width:100%' }), 'LM Studio: Developer → Start Server. Ollama: http://localhost:11434/v1. OpenRouter: https://openrouter.ai/api/v1'),
       field('Модель', model), field('API-ключ', input('apiKey', '', { type: 'password', style: 'width:100%' }), 'Для LM Studio/Ollama не нужен'),
-      field('Температура', input('temperature', 0.7, { type: 'number', step: '0.1', style: 'width:80px' })),
+      field('Температура', input('temperature', 0.4, { type: 'number', step: '0.1', style: 'width:80px' })),
       field('Длина ответа (токенов)', input('maxTokens', 220, { type: 'number', style: 'width:80px' }), 'Короче — быстрее отвечает'),
       field('Память диалога (реплик)', input('history', 8, { type: 'number', style: 'width:80px' })),
       field('Характер и правила (system prompt)', sys),
