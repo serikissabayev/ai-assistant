@@ -24,7 +24,9 @@
       "id": "speech",
       "name": "Речь",
       "category": "output",
-      "description": "Синтез голоса (TTS) и синхронизация губ по фонемам."
+      "description": "Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.",
+      "dist": "modules-dist/speech.js",
+      "version": "0.1"
     },
     {
       "id": "brain",
