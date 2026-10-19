@@ -8,7 +8,7 @@ python3 -m venv .venv
 mkdir -p voices
 BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main
 # lang/family/voice/quality — при ошибке 404 посмотрите список: https://huggingface.co/rhasspy/piper-voices/tree/main
-for v in "ru/ru_RU/irina/medium" "ru/ru_RU/denis/medium" "kk/kk_KZ/issai/high" "kk/kk_KZ/raya/x_low" "kk/kk_KZ/iseke/x_low"; do
+for v in "ru/ru_RU/irina/medium" "ru/ru_RU/denis/medium" "kk/kk_KZ/issai/high" "kk/kk_KZ/raya/x_low" "kk/kk_KZ/iseke/x_low" "en/en_US/lessac/medium" "en/en_US/ryan/medium"; do
   IFS=/ read -r l f n q <<<"$v"; id="${f}-${n}-${q}"
   [ -f "voices/$id.onnx" ] && continue
   if curl -fsSL -o "voices/$id.onnx" "$BASE/$l/$f/$n/$q/$id.onnx" && curl -fsSL -o "voices/$id.onnx.json" "$BASE/$l/$f/$n/$q/$id.onnx.json"; then echo "ok  $id"

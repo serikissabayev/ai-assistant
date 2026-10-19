@@ -4,7 +4,7 @@
 // Слушает: speech.say {text}  — сказать (очередь), speech.stop — замолчать.
 // Выдаёт:  speech.start {text}, speech.end — вокруг каждой фразы (модуль «Слух» в это время не слушает).
 export const meta = {
-  id: 'speech', name: 'Речь', version: '0.5', engine: 1, category: 'output',
+  id: 'speech', name: 'Речь', version: '0.7', engine: 1, category: 'output',
   description: 'Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.',
 };
 
@@ -28,8 +28,8 @@ export default function create() {
 
   const split = (text) => text.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
 
-  async function fetchWav(text) {
-    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: cfg('voice', 'auto'), gender: ctx.engineConfig.get('avatar.gender', 'female'), speaker: cfg('speaker', '') === '' ? null : Number(cfg('speaker', '')) }) });
+  async function fetchWav(item) {
+    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: item.t, lang: item.lang, voice: cfg('voiceOverride', '') || 'auto', gender: ctx.engineConfig.get('avatar.gender', 'female'), speaker: cfg('speaker', '') === '' ? null : Number(cfg('speaker', '')) }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
     return audio.decodeAudioData(await r.arrayBuffer());
   }
@@ -46,12 +46,12 @@ export default function create() {
 
   async function run() {
     if (busy) return; busy = true;
-    ctx.bus.emit('speech.start', { text: queue.join(' ') });
-    let pre = null;                                   // {text, p} — следующая фраза синтезируется, пока играет текущая
+    ctx.bus.emit('speech.start', { text: queue.map((x) => x.t).join(' ') });
+    let pre = null;                                   // {item, p} — следующая фраза синтезируется, пока играет текущая
     while (queue.length && !stopped) {
-      const text = queue.shift();
-      const buf = await (pre?.text === text ? pre.p : fetchWav(text).catch((e) => e));
-      pre = queue.length ? { text: queue[0], p: fetchWav(queue[0]).catch((e) => e) } : null;
+      const item = queue.shift(), text = item.t;
+      const buf = await (pre?.item === item ? pre.p : fetchWav(item).catch((e) => e));
+      pre = queue.length ? { item: queue[0], p: fetchWav(queue[0]).catch((e) => e) } : null;
       if (stopped) break;
       if (buf instanceof Error) { warn(buf.message); await silent(text); continue; }   // хотя бы губами
       await play(text, buf);
@@ -111,8 +111,8 @@ export default function create() {
   async function refreshVoices() {
     try {
       const r = await (await fetch(`${cfg('server', '')}/api/voices`)).json();
-      ui.voice?.replaceChildren(h('option', { value: 'auto' }, 'Авто (по языку текста и полу персонажа)'), ...r.voices.map((v) => h('option', { value: v }, v)));
-      if (ui.voice) ui.voice.value = cfg('voice', 'auto');
+      ui.voice?.replaceChildren(h('option', { value: '' }, 'Нет (голос закреплён за персонажем)'), ...r.voices.map((v) => h('option', { value: v }, v)));
+      if (ui.voice) ui.voice.value = cfg('voiceOverride', '');
       ui.info && (ui.info.textContent = !r.piper ? 'Piper не найден — запустите tools/install_piper.sh' : r.voices.length ? `Голосов: ${r.voices.length}` : 'Голосов нет — запустите tools/install_piper.sh');
     } catch { ui.info && (ui.info.textContent = 'Сервер не отвечает (нужен ./start.sh)'); }
   }
@@ -121,14 +121,16 @@ export default function create() {
     const field = (label, node, hint) => h('label', { class: 'row', style: 'flex-wrap:wrap' }, h('span', { class: 'row-text' }, h('b', {}, label), hint ? h('small', {}, hint) : null), node);
     ui.info = h('div', { class: 'hint', style: 'margin:6px 0 10px' }, '…');
     ui.voice = h('select', { class: 'text-input', style: 'width:100%' });
-    ui.voice.onchange = () => ctx.config.set('voice', ui.voice.value);
-    const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлеметсіз бе! Мен Адинамын. Сізге қалай көмектесе аламын?' });
+    ui.voice.onchange = () => ctx.config.set('voiceOverride', ui.voice.value);
+    const test = h('input', { class: 'text-input', style: 'width:100%', value: `Сәлеметсіз бе! Мен ${ctx.engineConfig.get('assistant.spoken', null)?.kk ?? 'Әдина'}мын. Сізге қалай көмектесе аламын?` });
     el.append(
-      ui.info, field('Голос', ui.voice),
+      ui.info,
+      h('div', { class: 'hint', style: 'margin:2px 0 10px' }, 'Голоса закреплены за персонажем: девушка — kk raya, ru irina, en lessac; парень — kk issai-high, ru denis, en ryan. Язык берётся из текста ответа.'),
+      field('Принудительный голос', ui.voice, 'Необязательно: заменяет закреплённый голос'),
       field('Номер говорящего', h('input', { class: 'text-input', style: 'width:80px', type: 'number', min: 0, value: cfg('speaker', ''), onchange: (e) => ctx.config.set('speaker', e.target.value) }), 'Только для многоголосых моделей Piper; пусто — по умолчанию'),
       field('Громкость', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: cfg('volume', 1), oninput: (e) => { ctx.config.set('volume', Number(e.target.value)); if (gain) gain.gain.value = Number(e.target.value); } })),
       field('Проверка', test),
-      h('button', { class: 'btn', onclick: () => ctx.bus.emit('speech.say', { text: test.value }) }, 'Сказать'),
+      h('button', { class: 'btn', onclick: () => ctx.bus.emit('speech.say', { text: test.value, lang: 'kk' }) }, 'Сказать'),
     );
     refreshVoices();
   }
@@ -139,7 +141,7 @@ export default function create() {
       audio = new AudioContext(); gain = audio.createGain(); gain.gain.value = cfg('volume', 1); gain.connect(audio.destination);
       const resume = () => audio.state === 'suspended' && audio.resume().catch(() => {});
       resume(); addEventListener('pointerdown', resume, { once: true }); addEventListener('keydown', resume, { once: true });
-      ctx.bus.on('speech.say', ({ text }) => { if (!text?.trim()) return; queue.push(...split(text)); run(); });
+      ctx.bus.on('speech.say', ({ text, lang }) => { if (!text?.trim()) return; queue.push(...split(text).map((t) => ({ t, lang }))); run(); });
       ctx.bus.on('speech.stop', interrupt);
       ctx.onFrame(tick);
       ctx.ui.addPanel({ tab: 'engine', title: 'Речь', render: buildPanel });

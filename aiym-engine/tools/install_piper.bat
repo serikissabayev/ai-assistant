@@ -23,6 +23,8 @@ call :get ru ru_RU denis medium
 call :get kk kk_KZ issai high
 call :get kk kk_KZ raya x_low
 call :get kk kk_KZ iseke x_low
+call :get en en_US lessac medium
+call :get en en_US ryan medium
 echo.
 echo Готово. Перезапустите движок ^(start_all.bat^) и обновите страницу ^(Ctrl+Shift+R^).
 dir /b voices\*.onnx 2>nul
