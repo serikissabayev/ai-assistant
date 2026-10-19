@@ -32,7 +32,9 @@
       "id": "brain",
       "name": "Мозг (LLM)",
       "category": "brain",
-      "description": "Подключение к LM Studio / Ollama / OpenRouter, выбор модели и промпта."
+      "description": "Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.",
+      "dist": "modules-dist/brain.js",
+      "version": "0.1"
     }
   ]
 }
