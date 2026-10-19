@@ -8,6 +8,6 @@ if exist .venv\Scripts\python.exe (
 ) else (
   echo Whisper не установлен ^(tools\install_whisper.bat^) — запускаю без него.
 )
-start "Aiym engine (не закрывать)" cmd /k "start.bat"
+start "Adina engine (не закрывать)" cmd /k "start.bat"
 timeout /t 4 /nobreak >nul
 start msedge http://localhost:8080

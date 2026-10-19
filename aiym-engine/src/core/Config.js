@@ -1,8 +1,9 @@
 // Настройки движка: defaults → config/engine.json (для киоска) → localStorage (из панели настроек).
-const LS_KEY = 'aiym.config.v1';
+const LS_KEY = 'adina.config.v1';
+const LS_LEGACY = 'aiym.config.v1';      // прежний ключ: настройки переносятся автоматически
 
 export const DEFAULTS = {
-  assistant: { name: 'Айым', language: 'ru' },
+  assistant: { name: 'Адина', language: 'ru' },
   ui: { showViewport: false, matrixFilter: true, splitRatio: 0.5, showFps: false, captions: true, autoHideChrome: true },
   avatar: { physics: true, idle: true },
   modules: {}, // { <id>: { enabled: bool, config: {...} } }
@@ -22,8 +23,9 @@ export class Config {
 
   constructor(base) {
     this.#data = merge(DEFAULTS, base);
-    try { this.#data = merge(this.#data, JSON.parse(localStorage.getItem(LS_KEY) ?? '{}')); }
+    try { this.#data = merge(this.#data, JSON.parse(localStorage.getItem(LS_KEY) ?? localStorage.getItem(LS_LEGACY) ?? '{}')); }
     catch { /* localStorage недоступен — работаем с дефолтами */ }
+    if (this.#data.assistant?.name === 'Айым') this.#data.assistant.name = 'Адина';      // старое сохранённое имя
   }
 
   get(path, fallback) {
