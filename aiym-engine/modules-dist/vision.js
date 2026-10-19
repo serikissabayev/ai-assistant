@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.5', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.6', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -72,7 +72,7 @@ export default function create() {
       faces = trackFaces(r, t);
     }
     let handInfo = null;
-    if (hands && cfg('gestures', true) && ++process.n % 2 === 0) {
+    if (hands && cfg('gestures', true) && ++process.n % (cfg('fps', 10) <= 15 ? 1 : 2) === 0) {
       handInfo = readHands(hands.recognizeForVideo(video, ts), t);
       settleGestures(t, Math.max(0.02, t - (process.last ?? t))); process.last = t;
     }
@@ -170,12 +170,27 @@ export default function create() {
   }
 
   const lastOpen = [-99, -99];
+  // «Лайк» по форме руки (запасной путь рядом с классификатором MediaPipe, который часто путает его с кулаком):
+  // большой палец вытянут и смотрит вверх, остальные четыре пальца согнуты в кулак.
+  function isThumbUp(lm) {
+    const w = lm[0], hs = dist(w, lm[9]);
+    if (hs < 1e-3) return false;
+    const curled = [[6, 8], [10, 12], [14, 16], [18, 20]].filter(([pip, tip]) => dist(lm[tip], w) < dist(lm[pip], w) * 1.08).length;
+    if (curled < 3) return false;                                                       // не кулак
+    const ext = dist(lm[4], w) > dist(lm[2], w) * 1.15 && dist(lm[4], lm[5]) > hs * 0.45;   // большой палец вытянут и отведён
+    const up = lm[2].y - lm[4].y > hs * 0.35 && (lm[2].y - lm[4].y) > Math.abs(lm[4].x - lm[2].x) * 0.7;   // вверх (в кадре y растёт вниз), наклон до ~55°
+    return ext && up;
+  }
+
   function readHands(r, t) {
     let info = null; stat.hand = r.landmarks?.length ? 'рука в кадре' : 'руки нет';
     (r.landmarks ?? []).forEach((lm, i) => {
       const g = r.gestures?.[i]?.[0], cat = g?.categoryName, name = GESTURES[cat], wrist = lm[0];
       const x = toScreenX(wrist.x), y = 1 - wrist.y * 2;
       const handSize = dist(lm[0], lm[9]);                                   // слишком маленькая (далёкая) рука не считается
+      stat.cls = cat ? `${cat} ${g.score.toFixed(2)}` : '';
+      const geomUp = cfg('geoLike', true) && handSize >= T.handSize() && isThumbUp(lm);
+      if (geomUp) { seen.add('thumb_up'); seenPos.thumb_up = { x, y }; stat.hand = 'лайк (по форме руки)'; }
       const open = handSize >= T.handSize() && (palmOpen(lm) || (cat === 'Open_Palm' && g?.score > 0.5));
       const w = wave[i] ?? (wave[i] = []);
       if (open) {
@@ -189,7 +204,7 @@ export default function create() {
           greet(t);
         }
       } else if (t - lastOpen[i] > 0.7) w.length = 0;       // одиночные промахи классификатора не сбрасывают взмах
-      if (name && name !== 'open_palm' && g.score > T.score()) seen.add(name);
+      if (name && name !== 'open_palm' && g.score > (name === 'thumb_up' ? T.score() * 0.8 : T.score())) seen.add(name);
       if (name && g.score > T.score()) seenPos[name] = { x, y };
       if (t - held.wave < 1.5) info = info ?? { name: 'wave', x, y };
     });
@@ -328,7 +343,7 @@ export default function create() {
   function refreshUi() {
     if (!ui.status?.isConnected) return;
     ui.status.textContent = `Модели: ${stat.model} · камера: ${video ? 'есть' : 'нет'} · ${stat.fps} к/с`;
-    ui.info.textContent = `Лиц: ${stat.faces} · внимание: ${stat.speaker} · мимика: ${stat.mood} · жест: ${stat.gesture} · рука: ${stat.hand}`;
+    ui.info.textContent = `Лиц: ${stat.faces} · внимание: ${stat.speaker} · мимика: ${stat.mood} · жест: ${stat.gesture} · рука: ${stat.hand}${stat.cls ? ` [модель: ${stat.cls}]` : ''}`;
   }
 
   function buildPanel(el) {
@@ -345,6 +360,7 @@ export default function create() {
       field('Частота анализа камеры (кадров/с)', h('input', { type: 'range', min: 4, max: 30, value: cfg('fps', 10), oninput: (e) => ctx.config.set('fps', Number(e.target.value)) }), 'Ниже — легче для видеокарты и процессора; 10 хватает для мимики и жестов'),
       field('Считать на', (() => { const s = h('select', { class: 'text-input' }, [['GPU', 'Видеокарте'], ['CPU', 'Процессоре (разгружает видеокарту)']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg('delegate', 'GPU'); s.onchange = () => ctx.config.set('delegate', s.value); return s; })(), 'Применится после перезагрузки страницы'),
       field('Жесты', check('gestures', true)),
+      field('Лайк по форме руки', check('geoLike', true), 'Запасной способ: большой палец вверх, остальные в кулаке — работает, даже если модель путает лайк с кулаком'),
       field('Строгость жестов (1–5)', h('input', { type: 'range', min: 1, max: 5, step: 1, value: cfg('strictness', 4), oninput: (e) => ctx.config.set('strictness', Number(e.target.value)) }), 'Выше — надо махать сильнее и дольше, жест держать дольше'),
       field('Реакция на недопустимый жест', check('salute', true), 'Вытянутая вперёд-вверх прямая рука: она удивляется и не здоровается'),
       field('Здороваться в ответ на взмах руки', check('greet', true), 'Аватар машет рукой и здоровается — только в ответ на ваш жест'),
