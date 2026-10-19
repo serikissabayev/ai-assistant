@@ -1,8 +1,11 @@
 # Piper + голоса для Windows (вызывается из install_piper.bat)
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
-$py = if (Get-Command py -ErrorAction SilentlyContinue) { "py -3" } else { "python" }
-Invoke-Expression "$py -m venv .venv"
+$pyv = $null
+foreach ($v in "3.12", "3.11", "3.10") { & py "-$v" --version 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $pyv = "-$v"; break } }
+if (-not $pyv) { Write-Host "Не нашёл Python 3.12 (3.11 / 3.10). Поставьте: winget install Python.Python.3.12 — и запустите снова."; exit 1 }
+if (Test-Path .venv) { Remove-Item .venv -Recurse -Force }
+& py $pyv -m venv .venv
 & .\.venv\Scripts\python.exe -m pip install -q --upgrade pip piper-tts
 New-Item -ItemType Directory -Force -Path voices | Out-Null
 $base = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
