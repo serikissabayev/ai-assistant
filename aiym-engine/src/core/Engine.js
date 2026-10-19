@@ -7,6 +7,7 @@ import { Shell } from '../ui/Shell.js';
 import { SpeechSim } from './SpeechSim.js';
 import { Diagnostics } from './Diagnostics.js';
 import { DEFAULT_DISPLAY, LEGACY_DISPLAY, variants, mentions, spoken } from './Names.js';
+import { commandOf, stopAck } from './Commands.js';
 
 export const ENGINE_VERSION = '0.1.0';
 // имена персонажей и их написания по языкам — в Names.js
@@ -83,8 +84,24 @@ export class Engine {
   }
 
   // Обращение по имени: назвали другого персонажа — он «выходит» (переключаем) и отвечает; помечаем реплику, чтобы «Мозг» знал, что обратились
+  #lastStop = -99;
   #onHeard(p) {
-    if (!p?.final || !p.text) return;
+    if (!p?.text) return;
+    // «стоп» / «остановись» / «тоқта» / «не то»: сразу прерываем речь и генерацию (работает и пока она говорит сама)
+    const cmd = commandOf(p.text);
+    if (cmd) {
+      p.command = cmd;
+      if (performance.now() - this.#lastStop > 700) {                    // один и тот же «стоп» из нескольких окон — реагируем один раз
+        this.#lastStop = performance.now();
+        const lang = p.lang || (/[әіңғүұқөһ]/i.test(p.text) ? 'kk' : /[а-яё]/i.test(p.text) ? 'ru' : 'en');
+        this.bus.emit('assistant.stop', { reason: cmd, text: p.text });
+        this.bus.emit('speech.stop', {});
+        this.avatar.trigger('nod');
+        if (cmd === 'stop') this.ui.setCaption(stopAck(lang, this.config.get('avatar.gender', 'female')), { role: 'assistant', hold: 2 });
+      }
+      if (cmd === 'stop') p.handled = true;                                // чистое «стоп» модели не отправляем
+    } else if (p.selfSpeaking) p.ignore = true;                           // услышано во время её речи и не команда — скорее всего эхо
+    if (!p.final || p.ignore) return;
     const g = this.config.get('avatar.gender', 'female'), other = g === 'female' ? 'male' : 'female', names = this.#names();
     const own = mentions(p.text, g, names[g]), oth = mentions(p.text, other, names[other]);
     p.addressed = own || oth;

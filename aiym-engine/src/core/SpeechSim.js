@@ -9,6 +9,7 @@ export class SpeechSim {
       if (engine.modules?.entries.get('speech')?.state === 'on') return;      // говорит настоящий модуль
       if (text?.trim()) this.#queue.push(text.trim());
     });
+    engine.bus.on('speech.stop', () => { this.#queue = []; if (this.#cur) { this.#cur = null; engine.avatar.endSpeech(); engine.bus.emit('speech.end', { simulated: true }); } });
     engine.onFrame((dt, t) => this.#tick(t));
   }
 
