@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildGirl } from './buildGirl.js';
+import { buildBoy } from './buildBoy.js';
 import { VISEMES } from './Mouth.js';
 import { Mosquito } from './Mosquito.js';
 
@@ -20,6 +21,9 @@ export const EMOTIONS = {
 };
 
 const VIEWS = { full: { h: 4.7, w: 4.0, cy: 0.5 }, face: { h: 2.5, w: 2.4, cy: 0.12 } };
+// у парня нет высокого саукеле — кадр ниже и теснее
+const VIEWS_M = { full: { h: 3.7, w: 4.1, cy: -0.12 }, face: { h: 2.2, w: 2.2, cy: 0.0 } };
+const viewsFor = (g) => (g === 'male' ? VIEWS_M : VIEWS);
 const HAND_GESTURES = { wave: { pose: 'open', dur: 4.0 }, like: { pose: 'like', dur: 3.0 }, peace: { pose: 'peace', dur: 3.2 } };
 const RAISE_T = 0.7, LOWER_T = 0.8;
 const EYE_CONTACT_PITCH = 0.05;   // камера чуть выше линии глаз: поднимаем взгляд, чтобы смотрела «в глаза», а не на шею
@@ -31,7 +35,7 @@ const LIMITS = { yaw: 0.75, pitch: 0.4 };
  * (слух/речь/зрение), внутренности наружу не торчат.
  */
 export class Avatar {
-  constructor(container, { pixelRatioMax = 2, maxRender = [2560, 1440], antialias = true } = {}) {
+  constructor(container, { pixelRatioMax = 2, maxRender = [2560, 1440], antialias = true, gender = 'female' } = {}) {
     this.container = container;
     this.pixelRatioMax = pixelRatioMax; this.maxRender = maxRender;
     this.renderer = new THREE.WebGLRenderer({ antialias, alpha: true, stencil: true, powerPreference: 'high-performance' });
@@ -44,7 +48,8 @@ export class Avatar {
     this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 60);
     this.#lights();
 
-    this.rig = buildGirl();
+    this.gender = gender === 'male' ? 'male' : 'female';
+    this.rig = this.gender === 'male' ? buildBoy() : buildGirl();
     this.scene.add(this.rig.root);
     this.mosquito = new Mosquito(this.scene);
     this._face = new THREE.Vector3(); this._mq = null;
@@ -62,7 +67,7 @@ export class Avatar {
       turn: { active: false, next: 5, yaw: 0, pitch: 0, until: 0 },   // редкие случайные повороты головы
     };
     this.opts = { idle: true, physics: true, mosquito: true, mosquitoSound: true };
-    this.viewCur = { ...VIEWS.full }; this.viewTarget = { ...VIEWS.full };
+    this.viewCur = { ...viewsFor(this.gender).full }; this.viewTarget = { ...viewsFor(this.gender).full }; this._focus = 'full';
 
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(container);
@@ -95,7 +100,21 @@ export class Avatar {
   }
 
   /** Кадрирование: 'full' (до груди) | 'face' (крупный план). Плавный переход. */
-  focus(name = 'full') { this.viewTarget = { ...VIEWS[name] ?? VIEWS.full }; }
+  focus(name = 'full') { this._focus = name; const V = viewsFor(this.gender); this.viewTarget = { ...V[name] ?? V.full }; }
+
+  /** Сменить персонажа: 'female' (Адина) | 'male' (парень). Всё остальное — эмоции, жесты, речь — остаётся. */
+  setGender(g) {
+    g = g === 'male' ? 'male' : 'female';
+    if (g === this.gender) return;
+    const old = this.rig;
+    this.scene.remove(old.root);
+    old.root.traverse((o) => { o.geometry?.dispose?.(); });
+    this.gender = g;
+    this.rig = g === 'male' ? buildBoy() : buildGirl();
+    this.scene.add(this.rig.root);
+    this.setOptions({});                         // физика/отладка — на новую модель
+    this.focus(this._focus);
+  }
 
   // ───────── Публичное API ─────────
 

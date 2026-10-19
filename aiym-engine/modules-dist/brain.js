@@ -6,11 +6,11 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.7', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.8', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
-const DEFAULT_PROMPT = `Сен Қазақстандағы ақпараттық технологиялар мен жасанды зерде орталығының "Адина" аталған дауыстық көмекшісің. Әдепті, мейірімді, әзіл-қалжыңың жеңіл болсын. Қай тілде сөйлесе, сол тілде жауап бер: қазақша, орысша немесе ағылшынша. Қысқа әрі табиғи сөйле, жауаптарың бір-үш сөйлемнен аспасын. Белгілеу тілін, тізімдерді, көңіл күй белгілерін және сілтемелерді қолданба, өйткені жауаптарың дауыстап оқылады. Білмесең, оны ашық айт.`;
+const promptFor = (name, gender) => `Сен Қазақстандағы ақпараттық технологиялар мен жасанды зерде орталығының "${name}" аталған дауыстық көмекшісің. Әдепті, мейірімді, әзіл-қалжыңың жеңіл болсын. Қай тілде сөйлесе, сол тілде жауап бер: қазақша, орысша немесе ағылшынша. Қысқа әрі табиғи сөйле, жауаптарың бір-үш сөйлемнен аспасын. Белгілеу тілін, тізімдерді, көңіл күй белгілерін және сілтемелерді қолданба, өйткені жауаптарың дауыстап оқылады. Білмесең, оны ашық айт.${gender === 'male' ? ' Орысша сөйлегенде өзің туралы ер адам ретінде айт (я рад, я готов).' : ' Орысша сөйлегенде өзің туралы әйел ретінде айт (я рада, я готова).'}`;
 
 // чистим то, что нельзя произносить
 // модели, которые не умеют вести диалог (речь, эмбеддинги, реранкеры) — для «auto» пропускаем
@@ -61,6 +61,15 @@ export default function create() {
     return id || 'llama-3.1-kazllm-1.0-8b4';
   }
 
+  // характер: свой текст из настроек главнее; если пусто или это наш прежний стандартный — подставляем по имени и полу персонажа
+  const charName = () => ctx.engineConfig.get('assistant.name', 'Адина'), charGender = () => ctx.engineConfig.get('avatar.gender', 'female');
+  function effectiveSystem() {
+    const s = (cfg('system', '') || '').trim();
+    const stock = ['Адина', 'Адиль'].flatMap((n) => ['female', 'male'].map((g) => promptFor(n, g)));
+    const legacy = ['Адина', 'Адиль'].map((n) => promptFor(n, 'female').replace(/ Орысша сөйлегенде[^.]*\.$/, ''));
+    return !s || stock.includes(s) || legacy.includes(s) ? promptFor(charName(), charGender()) : s;
+  }
+
   async function ask(text) {
     text = text?.trim(); if (!text) return;
     abort?.abort();
@@ -79,7 +88,7 @@ export default function create() {
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
         body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
-          messages: [{ role: 'system', content: cfg('system', DEFAULT_PROMPT) }, ...history] }),
+          messages: [{ role: 'system', content: effectiveSystem() }, ...history] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
       const rd = r.body.getReader(), dec = new TextDecoder(); let line = '';
@@ -129,7 +138,7 @@ export default function create() {
     ui.info = h('div', { class: 'hint', style: 'margin:6px 0' }, '…'); ui.status = h('div', { class: 'hint' }, '');
     ui.models = h('datalist', { id: 'brain-models' });
     const model = input('model', 'auto', { style: 'width:100%', list: 'brain-models' });
-    const sys = h('textarea', { class: 'text-input', rows: 6, style: 'width:100%;resize:vertical' }); sys.value = cfg('system', DEFAULT_PROMPT); sys.onchange = () => ctx.config.set('system', sys.value);
+    const sys = h('textarea', { class: 'text-input', rows: 6, style: 'width:100%;resize:vertical' }); sys.value = effectiveSystem(); sys.onchange = () => ctx.config.set('system', sys.value);
     const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлем! Өзіңді таныстыршы.' });
     el.append(ui.info, ui.status, ui.models,
       field('Адрес сервера', input('url', 'http://localhost:1235/v1', { style: 'width:100%' }), 'LM Studio: Developer → Start Server. Ollama: http://localhost:11434/v1. OpenRouter: https://openrouter.ai/api/v1'),
@@ -140,7 +149,7 @@ export default function create() {
       field('Характер и правила (system prompt)', sys),
       h('button', { class: 'btn', onclick: loadModels }, 'Проверить связь'), ' ',
       h('button', { class: 'btn', onclick: () => { history = []; ctx.ui.toast('Память диалога очищена'); } }, 'Забыть разговор'),
-      ' ', h('button', { class: 'btn', onclick: () => { sys.value = DEFAULT_PROMPT; ctx.config.set('system', DEFAULT_PROMPT); ctx.ui.toast('Характер сброшен на значение по умолчанию'); } }, 'Характер по умолчанию'),
+      ' ', h('button', { class: 'btn', onclick: () => { ctx.config.set('system', ''); sys.value = effectiveSystem(); ctx.ui.toast('Характер сброшен на значение по умолчанию'); } }, 'Характер по умолчанию'),
       field('Проверка', test), h('button', { class: 'btn primary', onclick: () => ask(test.value) }, 'Спросить'));
     loadModels();
   }

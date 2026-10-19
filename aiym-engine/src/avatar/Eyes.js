@@ -27,7 +27,7 @@ function upperLid(s, wing = true) {
 
 const tube = (curve, r, mat, seg = 40) => new THREE.Mesh(new THREE.TubeGeometry(curve, seg, r, 5, false), mat);
 
-function buildEye(s) {
+function buildEye(s, o = {}) {
   const g = new THREE.Group();
   const eye = new THREE.Group(); g.add(eye);
   const lash = new THREE.Group(); g.add(lash);
@@ -48,8 +48,8 @@ function buildEye(s) {
   hl(0.021, -0.026, 0.036); hl(0.011, 0.03, -0.022);
 
   const ink = basic(PAL.line);
-  const top = tube(upperLid(s), 0.0105, ink); top.position.z = 0.004; top.renderOrder = 15; lash.add(top);
-  const thick = tube(new THREE.CatmullRomCurve3(upperLid(s).getPoints(24).slice(14)), 0.0165, ink, 20);
+  const top = tube(upperLid(s, o.wing ?? true), 0.0105 * (o.lash ?? 1), ink); top.position.z = 0.004; top.renderOrder = 15; lash.add(top);
+  const thick = tube(new THREE.CatmullRomCurve3(upperLid(s, o.wing ?? true).getPoints(24).slice(14)), 0.0165 * (o.lash ?? 1), ink, 20);
   thick.position.z = 0.0042; thick.renderOrder = 15; lash.add(thick);
   const crease = tube(upperLid(s, false).clone(), 0.003, basic('#8a5233'), 24);
   crease.position.set(0, 0.026, 0.002); crease.scale.set(0.95, 1, 1); crease.renderOrder = 9; lash.add(crease);
@@ -80,15 +80,15 @@ function browGeometry(len, arch, thick) {
   return new THREE.ShapeGeometry(new THREE.Shape(pts));
 }
 
-export function buildEyes(head) {
+export function buildEyes(head, o = {}) {
   const eyes = [], brows = [];
   for (const s of [-1, 1]) {            // s = +1 — правый на экране, внешний уголок смотрит в +x
-    const e = buildEye(s);
+    const e = buildEye(s, o);
     placeOnFace(e.group, 0.2 * s, -0.005, 0.004); e.group.scale.setScalar(1.14);
     head.add(e.group); eyes.push(e);
 
     const bg = new THREE.Group();
-    const bm = new THREE.Mesh(browGeometry(0.105, 0.014, 0.04), basic('#1a0f0b'));
+    const bm = new THREE.Mesh(browGeometry(0.105, o.browArch ?? 0.014, o.browThick ?? 0.04), basic('#1a0f0b'));
     bg.add(bm);
     placeOnFace(bg, 0.215 * s, 0.158, 0.006);
     bm.scale.x = s;

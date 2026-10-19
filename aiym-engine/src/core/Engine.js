@@ -8,6 +8,7 @@ import { SpeechSim } from './SpeechSim.js';
 import { Diagnostics } from './Diagnostics.js';
 
 export const ENGINE_VERSION = '0.1.0';
+export const DEFAULT_NAMES = { female: 'Адина', male: 'Адиль' };      // имя по умолчанию для каждого персонажа
 
 // Качество графики: разрешение рендера (множитель и потолок), сглаживание. Меняется перезагрузкой страницы.
 export const QUALITY = {
@@ -28,9 +29,11 @@ export class Engine {
 
     this.ui = new Shell(this);
     const q = QUALITY[this.config.get('avatar.quality', 'medium')] ?? QUALITY.medium;
-    this.avatar = new Avatar(this.ui.avatarMount, { pixelRatioMax: this.config.get('avatar.renderRatio', q.ratio), maxRender: this.config.get('avatar.renderMax', q.max), antialias: q.aa });
+    this.avatar = new Avatar(this.ui.avatarMount, { pixelRatioMax: this.config.get('avatar.renderRatio', q.ratio), maxRender: this.config.get('avatar.renderMax', q.max), antialias: q.aa, gender: this.config.get('avatar.gender', 'female') });
+    this.#syncName();
     this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false), mosquito: this.config.get('avatar.mosquito', true), mosquitoSound: this.config.get('avatar.mosquitoSound', true) });
     this.config.onChange((path, v) => {
+      if (path === 'avatar.gender') { this.avatar.setGender(v); this.#syncName(); this.bus.emit('avatar.gender', { gender: v }); }
       if (path === 'avatar.quality') setTimeout(() => location.reload(), 200);          // разрешение и сглаживание применяются при старте
       if (path === 'avatar.idle') this.avatar.setOptions({ idle: v });
       if (path === 'avatar.physics') this.avatar.setOptions({ physics: v });
@@ -47,6 +50,13 @@ export class Engine {
     this.#loop();
     this.bus.emit('engine.ready', { version: ENGINE_VERSION });
     await this.modules.startEnabled();
+  }
+
+  // имя: если оно «по умолчанию» (Адина/Адиль) — подставляем имя выбранного персонажа; своё имя не трогаем
+  #syncName() {
+    const g = this.config.get('avatar.gender', 'female'), cur = this.config.get('assistant.name', '');
+    if (!cur || Object.values(DEFAULT_NAMES).includes(cur)) this.config.set('assistant.name', DEFAULT_NAMES[g] ?? DEFAULT_NAMES.female);
+    const el = document.querySelector('#name'); if (el) el.textContent = this.config.get('assistant.name');
   }
 
   onFrame(fn) { this.#frameCbs.add(fn); return () => this.#frameCbs.delete(fn); }

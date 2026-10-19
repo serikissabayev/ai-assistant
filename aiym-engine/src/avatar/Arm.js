@@ -26,8 +26,8 @@ const smooth = (x) => { x = Math.min(Math.max(x, 0), 1); return x * x * (3 - 2 *
 const _p = new THREE.Vector3();
 
 // «Жестовая» рука: появляется только во время жеста (обычная опущенная рука при этом прячется).
-export function buildArm(sx, mats, chest, restArm) {
-  const g = new THREE.Group(); g.position.set(sx * 0.9, -1.38, 0.05); g.visible = false; chest.add(g);
+export function buildArm(sx, mats, chest, restArm, shoulderX = 0.9) {
+  const g = new THREE.Group(); g.position.set(sx * shoulderX, -1.38, 0.05); g.visible = false; chest.add(g);
   const upper = new THREE.Group(); g.add(upper);
 
   // широкий рукав до локтя с золотой отделкой

@@ -5,7 +5,7 @@ const LS_LEGACY = 'aiym.config.v1';      // прежний ключ: настр�
 export const DEFAULTS = {
   assistant: { name: 'Адина', language: 'ru' },
   ui: { showViewport: false, matrixFilter: true, splitRatio: 0.5, showFps: false, captions: true, autoHideChrome: true },
-  avatar: { physics: true, idle: true },
+  avatar: { physics: true, idle: true, gender: 'female' },
   modules: {}, // { <id>: { enabled: bool, config: {...} } }
 };
 
