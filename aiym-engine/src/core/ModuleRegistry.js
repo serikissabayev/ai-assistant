@@ -92,6 +92,7 @@ export class ModuleRegistry {
     if (old) { await this.#stop(old); old.bundle?.dispose(); this.entries.delete(pkg.id); }
     const e = this.#register(pkg.meta, { source: 'user', record: rec });
     e.enabled = true; this.#engine.config.set(`modules.${pkg.id}.enabled`, true);
+    if (this.#engine.config.get(`modules.${pkg.id}.removed`, false)) this.#engine.config.set(`modules.${pkg.id}.removed`, false);
     this.#engine.bus.emit('module.installed', { id: pkg.id, updated: !!old });
     await this.#start(e);
     return e;
@@ -104,6 +105,7 @@ export class ModuleRegistry {
     e.bundle?.dispose();
     await ModuleStore.remove(id);
     this.entries.delete(id);
+    this.#engine.config.set(`modules.${id}.removed`, true);              // удалили руками — сами больше не ставим
     this.#engine.bus.emit('module.state', { id, state: 'removed' });
   }
 
