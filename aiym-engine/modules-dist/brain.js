@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.4', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.5', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -24,7 +24,7 @@ function sentenceEnd(buf) {
 }
 
 export default function create() {
-  let ctx, h, cfg, history = [], abort = null, busy = false, viaProxy = false;
+  let ctx, h, cfg, history = [], abort = null, busy = false, viaProxy = false, lastModel = '';
   const ui = {};
 
   const base = () => cfg('url', 'http://localhost:1235/v1').replace(/\/+$/, '');
@@ -32,12 +32,29 @@ export default function create() {
 
   // прямой запрос; если браузер блокирует (CORS) — через мини-прокси движка (/api/proxy)
   async function request(path, init) {
-    const url = `${base()}${path}`;
+    const url = /^https?:/.test(path) ? path : `${base()}${path}`;
     if (!viaProxy) {
       try { return await fetch(url, init); }
       catch (e) { if (e.name === 'AbortError') throw e; viaProxy = true; ctx.log('прямой запрос не прошёл (CORS?), перехожу на прокси движка'); }
     }
     return fetch('/api/proxy', { ...init, headers: { ...init.headers, 'X-Target-Url': url } });
+  }
+
+  // Модель «auto» = та, что сейчас загружена в LM Studio (родной эндпоинт /api/v0/models), иначе первая из списка /v1/models
+  let autoModel = { id: '', at: -99 };
+  async function resolveModel() {
+    const m = cfg('model', 'auto').trim();
+    if (m && m !== 'auto') return m;
+    if (autoModel.id && performance.now() / 1000 - autoModel.at < 20) return autoModel.id;
+    let id = '';
+    try {
+      const root = base().replace(/\/v1$/, '');
+      const j = await (await request(`${root}/api/v0/models`, { headers: headers() })).json();
+      id = (j.data ?? []).find((x) => x.state === 'loaded' && /llm|vlm/.test(x.type ?? 'llm'))?.id ?? '';
+    } catch { /* не LM Studio — пробуем стандартный список */ }
+    if (!id) { try { id = (await (await request('/models', { headers: headers() })).json()).data?.[0]?.id ?? ''; } catch { /* нет связи */ } }
+    if (id) autoModel = { id, at: performance.now() / 1000 };
+    return id || 'llama-3.1-kazllm-1.0-8b4';
   }
 
   async function ask(text) {
@@ -54,9 +71,10 @@ export default function create() {
     let full = '', buf = '', first = true; const t0 = performance.now(); let tFirst = 0;
     const say = (s) => { s = clean(s); if (s.length > 1) { ctx.bus.emit('speech.say', { text: s }); } };
     try {
+      const model = await resolveModel(); lastModel = model;
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
-        body: JSON.stringify({ model: cfg('model', 'llama-3.1-kazllm-1.0-8b4'), stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
+        body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
           messages: [{ role: 'system', content: cfg('system', DEFAULT_PROMPT) }, ...history] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
@@ -89,13 +107,13 @@ export default function create() {
     }
   }
 
-  function status(t) { if (ui.status) ui.status.textContent = `${cfg('model', '—')} · ${t}`; ctx?.ui.setStatus(`Мозг: ${t}`); }
+  function status(t) { if (ui.status) ui.status.textContent = `${lastModel || cfg('model', 'auto')} · ${t}`; ctx?.ui.setStatus(`Мозг: ${t}`); }
 
   async function loadModels() {
     try {
       const r = await request('/models', { headers: headers() });
       const j = await r.json(); const ids = (j.data ?? []).map((m) => m.id);
-      ui.models?.replaceChildren(...ids.map((id) => h('option', { value: id })));
+      ui.models?.replaceChildren(h('option', { value: 'auto' }), ...ids.map((id) => h('option', { value: id })));
       ui.info && (ui.info.textContent = ids.length ? `Связь есть. Моделей: ${ids.length}${viaProxy ? ' (через прокси движка)' : ''}` : 'Сервер ответил, но моделей нет — загрузите модель');
     } catch (e) { ui.info && (ui.info.textContent = `Нет связи с ${base()}: ${e.message}`); }
   }
@@ -105,12 +123,12 @@ export default function create() {
     const input = (key, def, attrs = {}) => { const i = h('input', { class: 'text-input', value: cfg(key, def), ...attrs }); i.onchange = () => { ctx.config.set(key, attrs.type === 'number' ? Number(i.value) : i.value.trim()); if (key === 'url') { viaProxy = false; loadModels(); } }; return i; };
     ui.info = h('div', { class: 'hint', style: 'margin:6px 0' }, '…'); ui.status = h('div', { class: 'hint' }, '');
     ui.models = h('datalist', { id: 'brain-models' });
-    const model = input('model', 'llama-3.1-kazllm-1.0-8b4', { style: 'width:100%', list: 'brain-models' });
+    const model = input('model', 'auto', { style: 'width:100%', list: 'brain-models' });
     const sys = h('textarea', { class: 'text-input', rows: 6, style: 'width:100%;resize:vertical' }); sys.value = cfg('system', DEFAULT_PROMPT); sys.onchange = () => ctx.config.set('system', sys.value);
     const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлем! Өзіңді таныстыршы.' });
     el.append(ui.info, ui.status, ui.models,
       field('Адрес сервера', input('url', 'http://localhost:1235/v1', { style: 'width:100%' }), 'LM Studio: Developer → Start Server. Ollama: http://localhost:11434/v1. OpenRouter: https://openrouter.ai/api/v1'),
-      field('Модель', model), field('API-ключ', input('apiKey', '', { type: 'password', style: 'width:100%' }), 'Для LM Studio/Ollama не нужен'),
+      field('Модель', model, '«auto» — брать ту, что загружена в LM Studio сейчас (рекомендуется). Или выберите/впишите имя модели.'), field('API-ключ', input('apiKey', '', { type: 'password', style: 'width:100%' }), 'Для LM Studio/Ollama не нужен'),
       field('Температура', input('temperature', 0.4, { type: 'number', step: '0.1', style: 'width:80px' })),
       field('Длина ответа (токенов)', input('maxTokens', 220, { type: 'number', style: 'width:80px' }), 'Короче — быстрее отвечает'),
       field('Память диалога (реплик)', input('history', 8, { type: 'number', style: 'width:80px' })),

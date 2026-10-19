@@ -70,7 +70,7 @@ export class Diagnostics {
     L.push(`Слух: режим=${hc.sttMode ?? 'browser (по умолчанию)'}, язык=${hc.lang ?? 'ru-RU'}, встроенное распознавание браузера: ${globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition ? 'есть' : 'НЕТ'}`);
     L.push(await this.#probe('Whisper', `${(hc.sttUrl ?? 'http://localhost:8000/v1').replace(/\/+$/, '')}/models`));
     L.push(await this.#probe('Whisper журнал (последние строки и ошибки сервера)', `${(hc.sttUrl ?? 'http://localhost:8000/v1').replace(/\/+$/, '')}/log`));
-    L.push(`Мозг: модель=${bc.model ?? 'llama-3.1-kazllm-1.0-8b4'}`);
+    L.push(`Мозг: модель=${bc.model ?? 'auto (из LM Studio)'}`);
     L.push(await this.#probe('LLM-сервер', `${(bc.url ?? 'http://localhost:1235/v1').replace(/\/+$/, '')}/models`, bc.apiKey ? { headers: { Authorization: `Bearer ${bc.apiKey}` } } : {}));
 
     sec('Устройства и разрешения');
