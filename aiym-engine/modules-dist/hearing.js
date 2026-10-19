@@ -9,7 +9,7 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.8', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.9', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
@@ -36,6 +36,8 @@ function wavFrom(chunks, sampleRate) {
 export default function create() {
   let ctx, h, cfg, audio, stream, src, nodes = [], bufL, bufR, workletUrl;
   let stopped = false, rec = null, restartTimer = 0, speakingSelf = false, lastVision = -99;
+  // пока она говорит сама, слушаем короткими «окнами» ради команд «стоп»/«тоқта»; всё остальное движок отбросит
+  let selfBuf = [], selfN = 0, selfPeak = 0, echoAvg = 0.02, selfTimer = 0, selfBusy = false;
   const S = { floor: 0.003, level: 0, left: 0, right: 0, voice: false, above: 0, below: 0, x: 0, conf: 0, frame: 0, lastEmit: 0, channels: 1 };
   let preroll = [], utter = null, ui = {};
 
@@ -62,6 +64,8 @@ export default function create() {
       src.connect(node); node.connect(mute); mute.connect(audio.destination); nodes.push(node, mute);
       node.port.onmessage = (e) => {
         const c = e.data; if (!audio) return;
+        if (speakingSelf) { selfBuf.push(c); selfN += c.length; while (selfN > 2.4 * audio.sampleRate) selfN -= selfBuf.shift().length; return; }
+        selfBuf = []; selfN = 0;
         if (utter) utter.push(c); else { preroll.push(c); if (preroll.length > (0.5 * audio.sampleRate) / 128) preroll.shift(); }
       };
     }
@@ -95,6 +99,7 @@ export default function create() {
     const l = rms(swap ? bufR : bufL), r = rms(swap ? bufL : bufR);
     const level = Math.sqrt((l * l + r * r) / 2);
     S.left = l; S.right = r; S.level = level;
+    if (speakingSelf) { echoAvg = echoAvg * 0.985 + level * 0.015; selfPeak = Math.max(selfPeak, level); }     // эхо собственного голоса — «фон», на него реагировать не надо
 
     // шумовой порог подстраивается сам
     S.floor += (level - S.floor) * (level < S.floor * 1.5 ? 0.03 : 0.0006);
@@ -133,7 +138,8 @@ export default function create() {
     S.voice = on;
     ctx.bus.emit('hearing.voice', { active: on });
     if (cfg('sttMode', 'browser') === 'server') {
-      if (on && !speakingSelf) utter = [...preroll];
+      if (speakingSelf) return;                      // во время своей речи обычные фразы не накапливаем (см. окна для «стоп»)
+      if (on) utter = [...preroll];
       else if (!on && utter) { const chunks = utter; utter = null; preroll = []; sendToServer(chunks); }
     }
   }
@@ -144,12 +150,13 @@ export default function create() {
     if (cfg('sttMode', 'browser') !== 'browser') return;
     if (!SR) { ctx.ui.toast('Этот браузер не умеет распознавать речь. Используйте Chrome или режим «Свой сервер».', 'err', 8000); return; }
     rec = new SR();
-    rec.lang = { auto: 'kk-KZ', kk: 'kk-KZ', ru: 'ru-RU', en: 'en-US' }[cfg('langMode', 'auto')] ?? 'kk-KZ';          // встроенное распознавание браузера язык сам не определяет rec.continuous = true; rec.interimResults = true;
+    rec.lang = { auto: 'kk-KZ', kk: 'kk-KZ', ru: 'ru-RU', en: 'en-US' }[cfg('langMode', 'auto')] ?? 'kk-KZ';          // встроенное распознавание браузера язык сам не определяет
+    rec.continuous = true; rec.interimResults = true;
     rec.onresult = (e) => {
-      if (speakingSelf) return;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i], text = r[0].transcript.trim();
-        if (text) emitText(text, r.isFinal, r[0].confidence);
+        if (!text || (speakingSelf && text.split(/\s+/).length > 3)) continue;          // во время своей речи — только короткие реплики (команды)
+        emitText(text, r.isFinal, r[0].confidence, undefined, speakingSelf);
       }
     };
     rec.onerror = (e) => {
@@ -179,16 +186,16 @@ export default function create() {
 
   function stopStt() { clearTimeout(restartTimer); const r = rec; rec = null; try { r?.stop(); } catch { /* ignore */ } }
 
-  function emitText(text, final, confidence, lang) {
-    ctx.bus.emit('hearing.transcript', { text, final, confidence, lang });
+  function emitText(text, final, confidence, lang, selfSpeaking = false) {
+    ctx.bus.emit('hearing.transcript', { text, final, confidence, lang, selfSpeaking });      // selfSpeaking — услышано, пока говорила она сама: движок учтёт только команды «стоп»
     ctx.ui.setCaption(text, { role: 'user', hold: final ? 3 : 0 });
     ui.last && (ui.last.textContent = text);
   }
 
-  async function sendToServer(chunks) {
+  async function sendToServer(chunks, self = false) {
     if (!audio) return;
     const dur = chunks.reduce((n, c) => n + c.length, 0) / audio.sampleRate;
-    if (dur < 0.5 || dur > 30 || speakingSelf) return;
+    if (dur < 0.4 || dur > 30 || (speakingSelf && !self)) return;
     const tSend = performance.now();
     try {
       const fd = new FormData();
@@ -199,7 +206,7 @@ export default function create() {
       const r = await fetch(`${cfg('sttUrl', 'http://localhost:8000/v1').replace(/\/+$/, '')}/audio/transcriptions`, { method: 'POST', body: fd, headers: key ? { Authorization: `Bearer ${key}` } : {} });
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${((await r.json().catch(() => ({}))).error ?? '').slice(0, 200)}`);
       const j = await r.json(), text = (j.text ?? '').trim();
-      if (text) { ctx.log(`распознано за ${Math.round(performance.now() - tSend)} мс [${j.language ?? '?'}]: ${text}`); emitText(text, true, 1, j.language); }
+      if (text) { ctx.log(`распознано за ${Math.round(performance.now() - tSend)} мс [${j.language ?? '?'}]: ${text}`); emitText(text, true, 1, j.language, self); }
     } catch (e) { ctx.ui.toast(`Сервер распознавания не отвечает: ${e.message}`, 'err', 6000); }
   }
 
@@ -257,14 +264,20 @@ export default function create() {
     async start(c) {
       ctx = c; h = ctx.ui.h; cfg = ctx.config.get; stopped = false;
       await openAudio();
-      ctx.bus.on('speech.start', () => { speakingSelf = true; });
-      ctx.bus.on('speech.end', () => { setTimeout(() => { speakingSelf = false; }, 500); });
+      ctx.bus.on('speech.start', () => { speakingSelf = true; utter = null; selfPeak = 0; });
+      ctx.bus.on('speech.end', () => { setTimeout(() => { speakingSelf = false; selfBuf = []; selfN = 0; }, 500); });
+      selfTimer = setInterval(() => {              // раз в ~секунду: если громкость заметно выше эха — отправляем последние ~2 с на распознавание
+        if (!speakingSelf || selfBusy || !selfBuf.length || cfg('sttMode', 'browser') !== 'server') return;
+        const loud = selfPeak > echoAvg * 1.6 && selfPeak > 0.02; selfPeak = 0;
+        if (!loud) return;
+        selfBusy = true; sendToServer([...selfBuf], true).finally(() => { selfBusy = false; });
+      }, 1100);
       ctx.bus.on('vision.speaker', () => { lastVision = performance.now() / 1000; });
       ctx.onFrame((dt, t) => analyse(dt, t));
       ctx.ui.addPanel({ tab: 'engine', title: 'Слух', render: buildPanel });
       startStt();
       ctx.ui.setStatus('Слух');
     },
-    async stop() { stopped = true; stopStt(); closeAudio(); utter = null; preroll = []; },
+    async stop() { stopped = true; clearInterval(selfTimer); stopStt(); closeAudio(); utter = null; preroll = []; selfBuf = []; },
   };
 }

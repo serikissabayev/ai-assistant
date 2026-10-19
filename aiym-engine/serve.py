@@ -103,10 +103,13 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e: return self._json(502, {'error': str(e)})
         self.send_response(resp.status if hasattr(resp, 'status') else resp.code)
         self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json')); self.send_header('Cache-Control', 'no-store'); self.end_headers()
-        while True:
-            chunk = resp.read1(4096) if hasattr(resp, 'read1') else resp.read(4096)
-            if not chunk: break
-            self.wfile.write(chunk); self.wfile.flush()
+        try:
+            while True:
+                chunk = resp.read1(4096) if hasattr(resp, 'read1') else resp.read(4096)
+                if not chunk: break
+                self.wfile.write(chunk); self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):        # клиент оборвал поток («стоп») — это нормально
+            resp.close()
     def do_POST(self):
         if self.path.split('?')[0] == '/api/proxy': return self._proxy()
         if self.path.split('?')[0] != '/api/tts': return self._json(404, {'error': 'not found'})

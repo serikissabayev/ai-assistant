@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.9', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.10', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -17,6 +17,8 @@ const promptFor = (name, gender, sp) => `Сен Қазақстандағы ақ�
 const KK_LETTERS = /[әіңғүұқөһӘІҢҒҮҰҚӨҺ]/;
 const guessLang = (t) => (KK_LETTERS.test(t) ? 'kk' : /[а-яё]/i.test(t) ? 'ru' : /[a-z]/i.test(t) ? 'en' : 'ru');
 const LANG_LINE = { kk: 'Пайдаланушы қазір қазақша сөйлеп тұр — қазақша жауап бер.', ru: 'Пользователь сейчас говорит по-русски — отвечай по-русски.', en: 'The user is speaking English now — reply in English.' };
+// пользователь прервал: ответ был не по теме — не продолжать, извиниться и уточнить
+const REDIRECT_LINE = "The user just interrupted you because your previous answer was off-topic or wrong. Do NOT continue or repeat it. Apologize in one short sentence and ask what exactly they need. Reply in the user's language.";
 const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // чистим то, что нельзя произносить
@@ -89,7 +91,7 @@ export default function create() {
   }
 
 
-  async function ask(text, lang) {
+  async function ask(text, lang, command) {
     text = text?.trim(); if (!text) return;
     lang = lang || guessLang(text);
     abort?.abort();
@@ -108,7 +110,7 @@ export default function create() {
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
         body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
-          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}` }, ...history] }),
+          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}${command === 'redirect' ? `\n${REDIRECT_LINE}` : ''}` }, ...history] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
       const rd = r.body.getReader(), dec = new TextDecoder(); let line = '';
@@ -180,9 +182,13 @@ export default function create() {
       ctx = c; h = ctx.ui.h; cfg = ctx.config.get; history = []; viaProxy = false;
       const oldSys = cfg('system', ''); if (oldSys.includes('Айым')) ctx.config.set('system', oldSys.replaceAll('Айым', 'Адина'));   // имя ассистента теперь Адина
       ctx.bus.on('hearing.transcript', (p) => {
-        if (!p.final || !cfg('auto', true) || (p.text?.trim().length ?? 0) < 2) return;
+        if (!p.final || p.handled || p.ignore || !cfg('auto', true) || (p.text?.trim().length ?? 0) < 2) return;
         if (cfg('wakeByName', false) && !p.addressed) return;                       // режим «отвечать только когда назвали по имени»
-        ask(p.text, p.lang);
+        ask(p.text, p.lang, p.command);
+      });
+      ctx.bus.on('assistant.stop', () => {                                           // «стоп»: бросаем генерацию, замолкаем
+        abort?.abort(); abort = null; busy = false;
+        ctx.bus.emit('brain.thinking', { on: false }); ctx.avatar.setEmotion('neutral'); status('остановлено');
       });
       ctx.bus.on('brain.ask', ({ text, lang }) => ask(text, lang));
       ctx.bus.on('speech.stop', () => { /* прерывание речи не отменяет мысль: новый вопрос сам прервёт прошлый */ });
