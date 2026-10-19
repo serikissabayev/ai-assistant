@@ -47,6 +47,13 @@ def piper_python():
         if c and pathlib.Path(c).exists(): return c
     return None
 
+def gpu_env():
+    """Linux: библиотеки CUDA из pip-пакетов nvidia-* (в .venv) должны быть в LD_LIBRARY_PATH до старта процесса, иначе голос уйдёт на процессор."""
+    env = dict(os.environ)
+    libs = [str(p) for p in ROOT.glob('.venv/lib/python*/site-packages/nvidia/*/lib')]
+    if libs: env['LD_LIBRARY_PATH'] = os.pathsep.join(libs + [env.get('LD_LIBRARY_PATH', '')]).rstrip(os.pathsep)
+    return env
+
 _worker = None
 _wlock = threading.Lock()
 
@@ -57,7 +64,7 @@ def _worker_call(req):
         try:
             if _worker is None or _worker.poll() is not None:
                 _worker = subprocess.Popen([piper_python(), str(ROOT / 'tools/piper_worker.py')], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                           stderr=subprocess.DEVNULL, text=True, encoding='utf-8', bufsize=1)
+                                           stderr=subprocess.DEVNULL, text=True, encoding='utf-8', bufsize=1, env=gpu_env())
             _worker.stdin.write(json.dumps(req) + '\n'); _worker.stdin.flush()
             line = _worker.stdout.readline()
             if not line: raise RuntimeError('процесс Piper завершился')

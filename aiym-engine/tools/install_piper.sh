@@ -3,8 +3,14 @@
 # Запуск на сервере:  ./tools/install_piper.sh
 set -e
 cd "$(dirname "$0")/.."
-python3 -m venv .venv
-.venv/bin/pip install -q --upgrade pip piper-tts
+. tools/common.sh
+if [ -z "$VOICES_ONLY" ]; then
+  PY=$(pick_python) || { echo "Нужен Python 3.10–3.12"; exit 1; }
+  [ -x .venv/bin/python ] || $PY -m venv .venv
+  .venv/bin/pip install -q --upgrade pip piper-tts nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+  .venv/bin/pip uninstall -y -q onnxruntime >/dev/null 2>&1 || true
+  .venv/bin/pip install -q --upgrade onnxruntime-gpu          # голос на видеокарте
+fi
 mkdir -p voices
 BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main
 # lang/family/voice/quality — при ошибке 404 посмотрите список: https://huggingface.co/rhasspy/piper-voices/tree/main

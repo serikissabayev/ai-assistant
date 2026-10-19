@@ -19,6 +19,8 @@ export const QUALITY = {
   eco: { ratio: 1, max: [1280, 720], aa: false },
 };
 
+const mergeDeep = (a, b) => { const o = { ...a }; for (const [k, v] of Object.entries(b ?? {})) o[k] = v && typeof v === 'object' && !Array.isArray(v) && o[k] && typeof o[k] === 'object' ? mergeDeep(o[k], v) : v; return o; };
+
 export class Engine {
   bus = new EventBus();
   util = { lipsync: { textToVisemes } };
@@ -27,6 +29,8 @@ export class Engine {
   async boot() {
     let base = {};
     try { const r = await fetch('config/engine.json', { cache: 'no-store' }); if (r.ok) base = await r.json(); } catch { /* файл необязателен */ }
+    // настройки этого компьютера (адрес сервера ИИ и т.п.) — пишет установщик в config/local.json, в git не попадает
+    try { const r = await fetch('config/local.json', { cache: 'no-store' }); if (r.ok) base = mergeDeep(base, await r.json()); } catch { /* нет — ок */ }
     this.config = new Config(base);
 
     this.ui = new Shell(this);
@@ -128,6 +132,15 @@ export class Engine {
 
   // Модули из папки движка (Слух, Зрение, Речь, Мозг) обновляются сами, если на сервере версия новее: кнопку «Обновить» жать не нужно
   async #autoUpdateModules() {
+    // новый компьютер: Слух, Зрение, Речь и Мозг ставятся сами (кроме тех, что удалили руками)
+    for (const e of [...this.modules.entries.values()]) {
+      if (e.state !== 'planned' || !e.dist || this.config.get(`modules.${e.id}.removed`, false)) continue;
+      try {
+        const text = await (await fetch(e.dist, { cache: 'no-store' })).text();
+        await this.modules.installFiles([new File([text], e.dist.split('/').pop(), { type: 'text/javascript' })]);
+        this.ui.toast(`Модуль «${e.name}» установлен`);
+      } catch (er) { console.warn(`не удалось поставить «${e.id}»`, er); }
+    }
     const ver = (t) => t.match(/version:\s*'([\d.]+)'/)?.[1];
     const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
     for (const e of [...this.modules.entries.values()]) {
