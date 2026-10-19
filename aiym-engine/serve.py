@@ -23,6 +23,7 @@ VOICE_MAP = {
 
 def text_lang(text, hint=None):
     """Язык ответа по тексту: казахские буквы → kk; кириллица → подсказка (kk/ru) или ru; латиница → en."""
+    if hint in ('kk', 'ru', 'en'): return hint                                  # язык фразы решает «Мозг» (по самому тексту ответа)
     if re.search('[әіңғүұқөһӘІҢҒҮҰҚӨҺ]', text): return 'kk'
     if re.search('[а-яёА-ЯЁ]', text): return hint if hint in ('kk', 'ru') else 'ru'
     if re.search('[A-Za-z]', text): return 'en'
