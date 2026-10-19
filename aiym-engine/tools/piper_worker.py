@@ -14,15 +14,22 @@ def load(path):
         voices[path] = PiperVoice.load(path)
     return voices[path]
 
-def say(voice, text, out):
+def say(voice, text, out, speaker=None):
     with wave.open(out, 'wb') as wf:
-        if hasattr(voice, 'synthesize_wav'): voice.synthesize_wav(text, wf)      # piper-tts 1.3+
+        if hasattr(voice, 'synthesize_wav'):                                          # piper-tts 1.3+
+            cfg = None
+            if speaker is not None:
+                try:
+                    from piper import SynthesisConfig
+                    cfg = SynthesisConfig(speaker_id=int(speaker))                    # номер говорящего у многоголосых моделей
+                except Exception: cfg = None
+            voice.synthesize_wav(text, wf, syn_config=cfg) if cfg else voice.synthesize_wav(text, wf)
         else: voice.synthesize(text, wf)                                           # старые версии
 
 for line in sys.stdin:
     try:
         req = json.loads(line)
-        say(load(req['model']), req['text'], req['out'])
+        say(load(req['model']), req['text'], req['out'], req.get('speaker'))
         resp = {'ok': True}
     except Exception as e:
         resp = {'error': f'{type(e).__name__}: {e}', 'trace': traceback.format_exc()[-500:]}

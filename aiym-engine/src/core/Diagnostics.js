@@ -54,7 +54,7 @@ export class Diagnostics {
     const gl = (() => { try { const g = e.avatar.renderer.getContext(); const x = g.getExtension('WEBGL_debug_renderer_info'); return x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch { return '?'; } })();
     L.push(`Браузер: ${navigator.userAgent}`, `Платформа: ${navigator.platform}, ядер CPU: ${navigator.hardwareConcurrency}, память: ${navigator.deviceMemory ?? '?'} ГБ`,
       `Экран: ${screen.width}x${screen.height}, окно: ${innerWidth}x${innerHeight}, масштаб: ${devicePixelRatio}`, `Видеокарта (WebGL): ${gl}`,
-      `Рендер: ${e.avatar.renderer.domElement.width}x${e.avatar.renderer.domElement.height}, лимит кадров: ${cfg.get('avatar.fpsLimit', 30)}, качество: ${cfg.get('avatar.quality', 'medium')}`,
+      `Персонаж: ${e.avatar.gender === 'male' ? 'парень' : 'девушка'}, имя: ${cfg.get('assistant.name')}`, `Рендер: ${e.avatar.renderer.domElement.width}x${e.avatar.renderer.domElement.height}, лимит кадров: ${cfg.get('avatar.fpsLimit', 30)}, качество: ${cfg.get('avatar.quality', 'medium')}`,
       `Фокус окна: ${document.hasFocus() ? 'да' : 'НЕТ (тогда 12 к/с)'}`, `Безопасный контекст: ${isSecureContext}`, `Адрес страницы: ${location.href}`);
     const frames = await this.#fps(); L.push(`Реальный FPS движка: ${(frames / 1.5).toFixed(1)}`);
 

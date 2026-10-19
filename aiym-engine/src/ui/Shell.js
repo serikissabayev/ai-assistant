@@ -227,6 +227,8 @@ export class Shell {
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Лимит кадров в секунду'), h('small', {}, '30 — вдвое легче, чем 60; движения аватара остаются плавными')),
           (() => { const s = h('select', { class: 'text-input' }, [[15, '15'], [24, '24'], [30, '30'], [60, '60'], [0, 'Без лимита']].map(([v, t]) => h('option', { value: v }, t))); s.value = String(cfg.get('avatar.fpsLimit', 30)); s.onchange = () => cfg.set('avatar.fpsLimit', Number(s.value)); return s; })()),
         toggle('Экономить, когда окно не в фокусе', 'avatar.saveInBackground', true, 'Например, когда вы играете: аватар рисуется в 12 к/с и почти не грузит видеокарту'),
+        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Персонаж'), h('small', {}, 'Девушка (Адина) или парень (Адиль): мимика, жесты и речь одинаковые; имя и голос подстраиваются')),
+          (() => { const s = h('select', { class: 'text-input' }, [['female', 'Девушка'], ['male', 'Парень']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg.get('avatar.gender', 'female'); s.onchange = () => { cfg.set('avatar.gender', s.value); setTimeout(() => this.#renderEngine(), 50); }; return s; })()),
         toggle('Живая анимация', 'avatar.idle', true, 'Дыхание, моргание, блуждающий взгляд'),
         toggle('Комар', 'avatar.mosquito', true, 'Изредка залетает комар: она провожает его взглядом и поворачивает голову'),
         toggle('Писк комара', 'avatar.mosquitoSound', true, 'Характерный звук, громче когда он рядом'),

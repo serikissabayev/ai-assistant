@@ -71,3 +71,19 @@ export function veilTexture() {
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return t;
 }
+
+// Тахия (национальная мужская шапочка): красный бархат, золотые «бараньи рога» поясом и ромбы.
+export function tahiyaTexture() {
+  const W = 1024, H = 512;
+  const c = canvas(W, H), ctx = c.getContext('2d');
+  ctx.fillStyle = '#8a1a27'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(0,0,0,0.25)'); g.addColorStop(0.5, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.12)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#e3bd78'; ctx.fillStyle = '#e3bd78'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  for (let i = 0; i < 4; i++) ramHorn(ctx, W * (i + 0.5) / 4, H * 0.66, 110);          // пояс орнамента вокруг шапочки
+  for (let i = 0; i < 8; i++) {                                                          // ромбы между мотивами
+    const x = W * i / 8, y = H * 0.3; ctx.beginPath(); ctx.moveTo(x, y - 26); ctx.lineTo(x + 18, y); ctx.lineTo(x, y + 26); ctx.lineTo(x - 18, y); ctx.closePath(); ctx.fill();
+  }
+  ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(0, H * 0.92); ctx.lineTo(W, H * 0.92); ctx.stroke();      // кант у нижнего края
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+}

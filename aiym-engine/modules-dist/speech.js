@@ -4,7 +4,7 @@
 // Слушает: speech.say {text}  — сказать (очередь), speech.stop — замолчать.
 // Выдаёт:  speech.start {text}, speech.end — вокруг каждой фразы (модуль «Слух» в это время не слушает).
 export const meta = {
-  id: 'speech', name: 'Речь', version: '0.4', engine: 1, category: 'output',
+  id: 'speech', name: 'Речь', version: '0.5', engine: 1, category: 'output',
   description: 'Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.',
 };
 
@@ -29,7 +29,7 @@ export default function create() {
   const split = (text) => text.replace(/\s+/g, ' ').trim().match(/[^.!?…]+[.!?…]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
 
   async function fetchWav(text) {
-    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: cfg('voice', 'auto') }) });
+    const r = await fetch(`${cfg('server', '')}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: cfg('voice', 'auto'), gender: ctx.engineConfig.get('avatar.gender', 'female'), speaker: cfg('speaker', '') === '' ? null : Number(cfg('speaker', '')) }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
     return audio.decodeAudioData(await r.arrayBuffer());
   }
@@ -111,7 +111,7 @@ export default function create() {
   async function refreshVoices() {
     try {
       const r = await (await fetch(`${cfg('server', '')}/api/voices`)).json();
-      ui.voice?.replaceChildren(h('option', { value: 'auto' }, 'Авто (по языку текста)'), ...r.voices.map((v) => h('option', { value: v }, v)));
+      ui.voice?.replaceChildren(h('option', { value: 'auto' }, 'Авто (по языку текста и полу персонажа)'), ...r.voices.map((v) => h('option', { value: v }, v)));
       if (ui.voice) ui.voice.value = cfg('voice', 'auto');
       ui.info && (ui.info.textContent = !r.piper ? 'Piper не найден — запустите tools/install_piper.sh' : r.voices.length ? `Голосов: ${r.voices.length}` : 'Голосов нет — запустите tools/install_piper.sh');
     } catch { ui.info && (ui.info.textContent = 'Сервер не отвечает (нужен ./start.sh)'); }
@@ -125,6 +125,7 @@ export default function create() {
     const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлеметсіз бе! Мен Адинамын. Сізге қалай көмектесе аламын?' });
     el.append(
       ui.info, field('Голос', ui.voice),
+      field('Номер говорящего', h('input', { class: 'text-input', style: 'width:80px', type: 'number', min: 0, value: cfg('speaker', ''), onchange: (e) => ctx.config.set('speaker', e.target.value) }), 'Только для многоголосых моделей Piper; пусто — по умолчанию'),
       field('Громкость', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: cfg('volume', 1), oninput: (e) => { ctx.config.set('volume', Number(e.target.value)); if (gain) gain.gain.value = Number(e.target.value); } })),
       field('Проверка', test),
       h('button', { class: 'btn', onclick: () => ctx.bus.emit('speech.say', { text: test.value }) }, 'Сказать'),
