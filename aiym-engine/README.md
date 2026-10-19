@@ -9,6 +9,8 @@ chromium --kiosk --app=http://localhost:8080   # режим киоска
 ```
 Three.js лежит локально в `vendor/` — интернет не нужен.
 
+**Новый Windows-компьютер:** `git clone …`, затем `aiym-engine\install_all.bat` (один раз: Whisper + Piper), потом `aiym-engine\start_all.bat`. Настройки по умолчанию (казахский язык, характер Айым, лимит 30 к/с, анализ камеры 10 к/с) уже зашиты в код — ничего настраивать не нужно.
+
 **Windows, всё одним кликом:** `start_all.bat` (Whisper + движок + Edge). Либо только движок — двойной клик по `start.bat` (нужен Python 3 с галочкой «Add to PATH»), затем http://localhost:8080 в Chrome. Голос: `tools\install_piper.bat`.
 
 ## Структура

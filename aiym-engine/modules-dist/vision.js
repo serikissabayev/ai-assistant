@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.6', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.7', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -273,7 +273,7 @@ export default function create() {
     if (!cfg('greet', true)) return;
     const a = ctx.avatar; emoLock = t + 3.5; mimic.cur = 'happy';
     a.setEmotion('happy', 0.9); a.trigger('wave');          // машем в ответ — только когда помахали нам
-    const text = cfg('greeting', 'Салеметсизбе');
+    const text = cfg('greeting', 'Сәлеметсіз бе!');
     ctx.bus.emit('speech.say', { text });           // озвучка (или «немая речь» движка) сама двигает губами и покажет субтитр
     clearTimeout(greeting); greeting = setTimeout(() => a.setEmotion('neutral'), 3500);
   }
@@ -365,7 +365,7 @@ export default function create() {
       field('Реакция на недопустимый жест', check('salute', true), 'Вытянутая вперёд-вверх прямая рука: она удивляется и не здоровается'),
       field('Здороваться в ответ на взмах руки', check('greet', true), 'Аватар машет рукой и здоровается — только в ответ на ваш жест'),
       field('Лайк на «класс», peace на «V»', check('replyGestures', true), 'Показывает тот же жест в ответ, если его подержать полсекунды'),
-      field('Фраза приветствия', text('greeting', 'Салеметсизбе')),
+      field('Фраза приветствия', text('greeting', 'Сәлеметсіз бе!')),
       field('Зеркальное изображение камеры', check('mirror', true), 'Выключите, если аватар отворачивается в другую сторону'),
       field('Рамки лиц на картинке', check('overlay', true)),
       field('Чувствительность речи по губам', h('input', { type: 'range', min: 4, max: 40, value: cfg('speakThreshold', 0.012) * 1000, oninput: (e) => ctx.config.set('speakThreshold', e.target.value / 1000) })),
