@@ -21,14 +21,31 @@ _print = print
 def print(*a, **k):  # noqa: A001
     LOG.append(' '.join(str(x) for x in a)); _print(*a, **k)
 
+def add_nvidia_dlls():
+    """Если поставлены pip-пакеты nvidia-cublas-cu12 / nvidia-cudnn-cu12 (tools/install_whisper_gpu.bat) — подключаем их DLL."""
+    import glob
+    for base in {os.path.join(sys.prefix, 'Lib', 'site-packages'), *glob.glob(os.path.join(sys.prefix, 'lib', 'python*', 'site-packages'))}:
+        for d in glob.glob(os.path.join(base, 'nvidia', '*', 'bin')) + glob.glob(os.path.join(base, 'nvidia', '*', 'lib')):
+            os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+            if hasattr(os, 'add_dll_directory'):
+                try: os.add_dll_directory(d)
+                except OSError: pass
+
 def model():
     global _model
     if _model is None:
+        add_nvidia_dlls()
         from faster_whisper import WhisperModel
-        print(f'Загружаю модель {MODEL} (первый раз скачивается)…', flush=True)
-        _model = WhisperModel(MODEL, device=DEVICE, compute_type='auto')
+        print(f'Загружаю модель {MODEL} на {DEVICE} (первый раз скачивается)…', flush=True)
+        _model = WhisperModel(MODEL, device=DEVICE, compute_type='int8' if DEVICE == 'cpu' else 'auto')
         print('Модель готова.', flush=True)
     return _model
+
+def to_cpu(reason):
+    """Видеокарта недоступна (нет CUDA-библиотек) — переходим на процессор."""
+    global _model, DEVICE
+    print(f'GPU недоступна ({reason[:120]}) → перехожу на процессор (CPU). Для видеокарты: tools\\install_whisper_gpu.bat', flush=True)
+    _model, DEVICE = None, 'cpu'
 
 def wav_to_array(data):
     """WAV (PCM 16 бит) → float32 моно 16 кГц, без PyAV. Не WAV — None (тогда отдаём как есть)."""
@@ -48,9 +65,16 @@ def wav_to_array(data):
 def transcribe(data, language):
     if STUB: return 'проверка связи'
     audio = wav_to_array(data)
+    src = audio if audio is not None else io.BytesIO(data)
     with _lock:
-        segs, _ = model().transcribe(audio if audio is not None else io.BytesIO(data), language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False)
-        return ' '.join(s.text.strip() for s in segs).strip()
+        for attempt in (1, 2):
+            try:
+                segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False)
+                return ' '.join(s.text.strip() for s in segs).strip()
+            except RuntimeError as e:
+                if attempt == 1 and DEVICE != 'cpu' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')):
+                    to_cpu(str(e)); continue
+                raise
 
 def parse_multipart(ctype, body):
     msg = BytesParser(policy=email_policy).parsebytes(b'Content-Type: ' + ctype.encode() + b'\r\n\r\n' + body)
