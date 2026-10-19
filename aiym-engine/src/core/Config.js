@@ -4,7 +4,7 @@ const LS_KEY = 'aiym.config.v1';
 export const DEFAULTS = {
   assistant: { name: 'Айым', language: 'ru' },
   ui: { showViewport: false, matrixFilter: true, splitRatio: 0.5, showFps: false, captions: true, autoHideChrome: true },
-  avatar: { physics: true, idle: true, pixelRatioMax: 2, maxRender: [2560, 1440] },
+  avatar: { physics: true, idle: true },
   modules: {}, // { <id>: { enabled: bool, config: {...} } }
 };
 

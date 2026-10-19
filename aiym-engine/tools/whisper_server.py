@@ -30,10 +30,26 @@ def model():
         print('Модель готова.', flush=True)
     return _model
 
+def wav_to_array(data):
+    """WAV (PCM 16 бит) → float32 моно 16 кГц, без PyAV. Не WAV — None (тогда отдаём как есть)."""
+    import wave
+    import numpy as np
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            ch, rate, width, raw = w.getnchannels(), w.getframerate(), w.getsampwidth(), w.readframes(w.getnframes())
+    except Exception:
+        return None
+    if width != 2: return None
+    a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if ch > 1: a = a.reshape(-1, ch).mean(axis=1)
+    if rate != 16000 and len(a): a = np.interp(np.linspace(0, len(a) - 1, int(len(a) * 16000 / rate)), np.arange(len(a)), a).astype(np.float32)
+    return a
+
 def transcribe(data, language):
     if STUB: return 'проверка связи'
+    audio = wav_to_array(data)
     with _lock:
-        segs, _ = model().transcribe(io.BytesIO(data), language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False)
+        segs, _ = model().transcribe(audio if audio is not None else io.BytesIO(data), language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False)
         return ' '.join(s.text.strip() for s in segs).strip()
 
 def parse_multipart(ctype, body):

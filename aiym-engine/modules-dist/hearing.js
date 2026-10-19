@@ -9,7 +9,7 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.3', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.4', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
@@ -61,7 +61,7 @@ export default function create() {
       const node = new AudioWorkletNode(audio, 'aiym-capture'), mute = audio.createGain(); mute.gain.value = 0;
       src.connect(node); node.connect(mute); mute.connect(audio.destination); nodes.push(node, mute);
       node.port.onmessage = (e) => {
-        const c = e.data;
+        const c = e.data; if (!audio) return;
         if (utter) utter.push(c); else { preroll.push(c); if (preroll.length > (0.5 * audio.sampleRate) / 128) preroll.shift(); }
       };
     }
@@ -186,6 +186,7 @@ export default function create() {
   }
 
   async function sendToServer(chunks) {
+    if (!audio) return;
     const dur = chunks.reduce((n, c) => n + c.length, 0) / audio.sampleRate;
     if (dur < 0.5 || dur > 30 || speakingSelf) return;
     try {
