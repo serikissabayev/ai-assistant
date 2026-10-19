@@ -9,7 +9,7 @@ chromium --kiosk --app=http://localhost:8080   # режим киоска
 ```
 Three.js лежит локально в `vendor/` — интернет не нужен.
 
-**Windows:** двойной клик по `start.bat` (нужен Python 3 с галочкой «Add to PATH»), затем http://localhost:8080 в Chrome. Голос: `tools\install_piper.bat`.
+**Windows, всё одним кликом:** `start_all.bat` (Whisper + движок + Edge). Либо только движок — двойной клик по `start.bat` (нужен Python 3 с галочкой «Add to PATH»), затем http://localhost:8080 в Chrome. Голос: `tools\install_piper.bat`.
 
 ## Структура
 ```
