@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.16', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.17', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -35,6 +35,17 @@ function langOf(text, hint) {
 }
 const KK2RU = { ә: 'а', і: 'и', ң: 'н', ғ: 'г', ү: 'у', ұ: 'у', қ: 'к', ө: 'о', һ: 'х', Ә: 'А', І: 'И', Ң: 'Н', Ғ: 'Г', Ү: 'У', Ұ: 'У', Қ: 'К', Ө: 'О', Һ: 'Х' };
 const toRu = (t) => t.replace(/[әіңғүұқөһӘІҢҒҮҰҚӨҺ]/g, (c) => KK2RU[c]);
+// парень по-русски: «я рада / готова / сама / сказала» → мужской род
+const MASC = { рада: 'рад', готова: 'готов', сама: 'сам', должна: 'должен', полезна: 'полезен', благодарна: 'благодарен', уверена: 'уверен', довольна: 'доволен', счастлива: 'счастлив', согласна: 'согласен', способна: 'способен' };
+const toMasc = (t) => t
+  .replace(/(?<![а-яё])(я|Я)(\s+(?:не\s+|очень\s+|бы\s+|тоже\s+|всегда\s+|уже\s+)*)([а-яё]+)(?![а-яё])/g, (m, ya, mid, w) => {
+    const lw = w.toLowerCase();
+    if (MASC[lw]) return ya + mid + MASC[lw];
+    if (/[а-яё]{2,}ла$/.test(lw)) return ya + mid + w.slice(0, -2) + 'л';     // сказала → сказал, была → был
+    if (/[а-яё]{2,}лась$/.test(lw)) return ya + mid + w.slice(0, -4) + 'лся';                                                               // постаралась → постарался
+    return m;
+  })
+  .replace(/(?<![а-яё])(рада|готова|должна|полезна|благодарна|уверена|счастлива|согласна|способна|довольна)(?![а-яё])/gi, (w) => { const m = MASC[w.toLowerCase()]; return w[0] === w[0].toUpperCase() ? m[0].toUpperCase() + m.slice(1) : m; });     // «рада помочь», «быть полезна»
 // подсказка прямо в последней реплике: маленькие модели слушаются её лучше, чем системного текста (в историю не пишется)
 const LANG_HINT = { kk: '(Қазақша жауап бер.)', ru: '(Ответь по-русски.)', en: '(Answer in English.)' };
 const LANG_LINE = { kk: 'Пайдаланушы қазір қазақша сөйлеп тұр — қазақша жауап бер.', ru: 'Пользователь сейчас говорит по-русски — отвечай по-русски.', en: 'The user is speaking English now — reply in English.' };
@@ -159,6 +170,14 @@ export default function create() {
   // характер: свой текст из настроек главнее; если пусто или это наш прежний стандартный — подставляем по имени и полу персонажа
   const charName = () => ctx.engineConfig.get('assistant.name', 'Адина'), charGender = () => ctx.engineConfig.get('avatar.gender', 'female');
   const spokenNames = () => ctx.engineConfig.get('assistant.spoken', null);
+  // кто ты: прямо и на трёх языках — чтобы парень не говорил «я Адина, я рада»
+  function identity() {
+    const sp = spokenNames() ?? {}, male = charGender() === 'male';
+    const other = ctx.engineConfig.get('assistant.names', {})?.[male ? 'female' : 'male'] ?? (male ? 'Адина' : 'Нуртуган');
+    return male
+      ? `\nТы — ${sp.ru ?? charName()}, молодой мужчина. О себе говори только в мужском роде: я рад, я готов, я сам, я понял. Ты не ${other}. You are ${sp.en ?? charName()}, a young man. Сен — ${sp.kk ?? charName()}, жас жігітсің.`
+      : `\nТы — ${sp.ru ?? charName()}, девушка. О себе говори в женском роде: я рада, я готова, я сама, я поняла. Ты не ${other}. You are ${sp.en ?? charName()}, a young woman. Сен — ${sp.kk ?? charName()}, қызсың.`;
+  }
   function effectiveSystem() {
     const s = (cfg('system', '') || '').trim();
     if (!s || s.includes(MARK)) return promptFor(charName(), charGender(), spokenNames());      // стандартный характер — по имени, полу и языку
@@ -178,6 +197,9 @@ export default function create() {
     const lang = /[а-яёa-z]/i.test(bare) || KK_LETTERS.test(bare) ? langOf(bare, null) : userLang;      // язык озвучки — по самому ответу: русский текст читает русский голос, даже если спрашивали по-казахски
     const to = sp[lang] ?? sp.ru;
     for (const v of vars) text = text.replace(re(v), to);
+    const mine = new Set(vars.map((v) => v.toLowerCase()));
+    for (const v of [...ctx.engineConfig.get('assistant.allVariants', [])].filter((v) => !mine.has(v.toLowerCase())).sort((a, b) => b.length - a.length)) text = text.replace(re(v), to);   // назвался чужим именем — поправляем
+    if (lang === 'ru' && charGender() === 'male') text = toMasc(text);
     return { text: lang === 'ru' ? toRu(text) : text, lang };
   }
 
@@ -201,7 +223,7 @@ export default function create() {
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
         body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
-          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}${command === 'redirect' ? `\n${REDIRECT_LINE}` : ''}` }, ...history.slice(0, -1), { role: 'user', content: `${text}\n${LANG_HINT[lang] ?? ''}` }] }),
+          messages: [{ role: 'system', content: `${effectiveSystem()}${identity()}\n${LANG_LINE[lang] ?? ''}${command === 'redirect' ? `\n${REDIRECT_LINE}` : ''}` }, ...history.slice(0, -1), { role: 'user', content: `${text}\n${LANG_HINT[lang] ?? ''}` }] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
       const rd = r.body.getReader(), dec = new TextDecoder(); let line = '';
@@ -315,6 +337,7 @@ h('div', { class: 'group-sub', style: 'margin:8px 0 2px' }, h('b', {}, 'Моде
         ctx.bus.emit('brain.thinking', { on: false }); ctx.avatar.setEmotion('neutral'); status('остановлено');
       });
       ctx.bus.on('brain.ask', ({ text, lang }) => ask(text, lang));
+      ctx.bus.on('avatar.gender', () => { history = []; abort?.abort(); });      // другой персонаж — разговор с чистого листа, иначе он подхватывает чужие реплики («я Адина, я рада»)
       ctx.bus.on('speech.stop', () => { /* прерывание речи не отменяет мысль: новый вопрос сам прервёт прошлый */ });
       ctx.ui.addPanel({ tab: 'engine', title: 'Мозг', render: buildPanel });
       status('готов');
