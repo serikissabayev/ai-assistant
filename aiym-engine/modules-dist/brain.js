@@ -6,13 +6,15 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.6', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.7', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
 const DEFAULT_PROMPT = `Сен Қазақстандағы ақпараттық технологиялар мен жасанды зерде орталығының "Адина" аталған дауыстық көмекшісің. Әдепті, мейірімді, әзіл-қалжыңың жеңіл болсын. Қай тілде сөйлесе, сол тілде жауап бер: қазақша, орысша немесе ағылшынша. Қысқа әрі табиғи сөйле, жауаптарың бір-үш сөйлемнен аспасын. Белгілеу тілін, тізімдерді, көңіл күй белгілерін және сілтемелерді қолданба, өйткені жауаптарың дауыстап оқылады. Білмесең, оны ашық айт.`;
 
 // чистим то, что нельзя произносить
+// модели, которые не умеют вести диалог (речь, эмбеддинги, реранкеры) — для «auto» пропускаем
+const NOT_CHAT = /voxtral|whisper|embed|tts|rerank|speech|asr|wav2vec/i;
 const clean = (t) => t.replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>~]+/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1')
   .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').replace(/\s+/g, ' ').trim();
 
@@ -24,7 +26,7 @@ function sentenceEnd(buf) {
 }
 
 export default function create() {
-  let ctx, h, cfg, history = [], abort = null, busy = false, viaProxy = false, lastModel = '';
+  let ctx, h, cfg, history = [], abort = null, busy = false, viaProxy = false, lastModel = '', loadedList = [];
   const ui = {};
 
   const base = () => cfg('url', 'http://localhost:1235/v1').replace(/\/+$/, '');
@@ -50,9 +52,11 @@ export default function create() {
     try {
       const root = base().replace(/\/v1$/, '');
       const j = await (await request(`${root}/api/v0/models`, { headers: headers() })).json();
-      id = (j.data ?? []).find((x) => x.state === 'loaded' && /llm|vlm/.test(x.type ?? 'llm'))?.id ?? '';
+      const loaded = (j.data ?? []).filter((x) => x.state === 'loaded' && /llm|vlm/.test(x.type ?? 'llm') && !NOT_CHAT.test(x.id));
+      loadedList = (j.data ?? []).filter((x) => x.state === 'loaded').map((x) => `${x.id} (${x.type})`);
+      id = loaded[0]?.id ?? '';
     } catch { /* не LM Studio — пробуем стандартный список */ }
-    if (!id) { try { id = (await (await request('/models', { headers: headers() })).json()).data?.[0]?.id ?? ''; } catch { /* нет связи */ } }
+    if (!id) { try { id = ((await (await request('/models', { headers: headers() })).json()).data ?? []).map((x) => x.id).find((x) => !NOT_CHAT.test(x)) ?? ''; } catch { /* нет связи */ } }
     if (id) autoModel = { id, at: performance.now() / 1000 };
     return id || 'llama-3.1-kazllm-1.0-8b4';
   }
@@ -111,10 +115,11 @@ export default function create() {
 
   async function loadModels() {
     try {
+      await resolveModel().catch(() => {});
       const r = await request('/models', { headers: headers() });
       const j = await r.json(); const ids = (j.data ?? []).map((m) => m.id);
       ui.models?.replaceChildren(h('option', { value: 'auto' }), ...ids.map((id) => h('option', { value: id })));
-      ui.info && (ui.info.textContent = ids.length ? `Связь есть. Моделей: ${ids.length}${viaProxy ? ' (через прокси движка)' : ''}` : 'Сервер ответил, но моделей нет — загрузите модель');
+      ui.info && (ui.info.textContent = ids.length ? `Связь есть. Моделей: ${ids.length}${viaProxy ? ' (через прокси движка)' : ''}${loadedList.length ? ` · загружено в LM Studio: ${loadedList.join(', ')}` : ''}` : 'Сервер ответил, но моделей нет — загрузите модель');
     } catch (e) { ui.info && (ui.info.textContent = `Нет связи с ${base()}: ${e.message}`); }
   }
 

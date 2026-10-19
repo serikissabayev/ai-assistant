@@ -14,6 +14,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODEL = os.environ.get('WHISPER_MODEL', 'small')
 PORT = int(os.environ.get('WHISPER_PORT', '8000'))
 DEVICE = os.environ.get('WHISPER_DEVICE', 'auto')
+THREADS = int(os.environ.get('WHISPER_THREADS', max(4, (os.cpu_count() or 8) // 2)))     # на процессоре используем много ядер
+# подсказка модели: имя ассистента и тематика — меньше «Зайыметсі збер», точнее «Адина»
+PROMPTS = {'kk': 'Сәлеметсіз бе, Адина! Қазақстандағы ақпараттық технологиялар және жасанды зерде орталығы.', 'ru': 'Здравствуйте, Адина! Центр информационных технологий и искусственного интеллекта.'}
 STUB = os.environ.get('WHISPER_STUB') == '1'        # для проверки без модели
 _lock = threading.Lock(); _model = None
 LOG = collections.deque(maxlen=60)                  # последние строки журнала — отдаются в отчёт диагностики (GET /v1/log)
@@ -37,7 +40,7 @@ def model():
         add_nvidia_dlls()
         from faster_whisper import WhisperModel
         print(f'Загружаю модель {MODEL} на {DEVICE} (первый раз скачивается)…', flush=True)
-        _model = WhisperModel(MODEL, device=DEVICE, compute_type='int8' if DEVICE == 'cpu' else 'auto')
+        _model = WhisperModel(MODEL, device=DEVICE, compute_type='int8' if DEVICE == 'cpu' else 'auto', cpu_threads=THREADS)
         print('Модель готова.', flush=True)
     return _model
 
@@ -69,7 +72,7 @@ def transcribe(data, language):
     with _lock:
         for attempt in (1, 2):
             try:
-                segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False)
+                segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False, initial_prompt=PROMPTS.get(language or ''))
                 return ' '.join(s.text.strip() for s in segs).strip()
             except RuntimeError as e:
                 if attempt == 1 and DEVICE != 'cpu' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')):
