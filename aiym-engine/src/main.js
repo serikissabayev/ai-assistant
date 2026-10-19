@@ -1,4 +1,7 @@
 import { Engine } from './core/Engine.js';
+import { installLogCapture } from './core/Diagnostics.js';
+
+installLogCapture();                // запись console и ошибок для отчёта диагностики
 
 const engine = new Engine();
 window.aiym = engine;          // для отладки из консоли: aiym.avatar.setEmotion('happy')

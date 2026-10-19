@@ -44,6 +44,9 @@ export class Config {
     for (const fn of this.#listeners) fn(path, value);
   }
 
+  /** Копия всех настроек (для диагностики). */
+  dump() { return JSON.parse(JSON.stringify(this.#data)); }
+
   onChange(fn) {
     this.#listeners.add(fn);
     return () => this.#listeners.delete(fn);

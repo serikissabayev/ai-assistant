@@ -5,6 +5,7 @@ import { textToVisemes } from './lipsync.js';
 import { Avatar } from '../avatar/Avatar.js';
 import { Shell } from '../ui/Shell.js';
 import { SpeechSim } from './SpeechSim.js';
+import { Diagnostics } from './Diagnostics.js';
 
 export const ENGINE_VERSION = '0.1.0';
 
@@ -38,6 +39,7 @@ export class Engine {
       if (path === 'avatar.guides') this.avatar.setOptions({ guides: v });
     });
 
+    this.diagnostics = new Diagnostics(this);
     this.speechSim = new SpeechSim(this);
     this.modules = new ModuleRegistry(this);
     await this.modules.loadAll('src/modules/manifest.json');
