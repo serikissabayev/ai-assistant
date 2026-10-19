@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.12', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.13', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -69,9 +69,41 @@ export default function create() {
 
   // Модель «auto» = та, что сейчас загружена в LM Studio (родной эндпоинт /api/v0/models), иначе первая из списка /v1/models
   let autoModel = { id: '', at: -99 };
+  // список моделей сервера (кэш 30 с): [{id, loaded}]
+  let models = { at: -99, list: [] };
+  async function modelList() {
+    if (performance.now() / 1000 - models.at < 30) return models.list;
+    let list = [];
+    try {
+      const j = await (await request(`${base().replace(/\/v1$/, '')}/api/v0/models`, { headers: headers() })).json();
+      list = (j.data ?? []).map((x) => ({ id: x.id, loaded: x.state === 'loaded', type: x.type }));
+    } catch { /* не LM Studio */ }
+    if (!list.length) { try { list = ((await (await request('/models', { headers: headers() })).json()).data ?? []).map((x) => ({ id: x.id, loaded: true })); } catch { /* нет связи */ } }
+    models = { at: performance.now() / 1000, list };
+    return list;
+  }
+  const squash = (x) => String(x).toLowerCase().replace(/^.*\//, '').replace(/[^a-z0-9]/g, '');
+  // имя из настроек → настоящий id на сервере: «Gemma4-26B-A4B-…-Q3_K_M» ↔ «gemma4-26b-a4b-…»; иначе LM Studio молча отвечает загруженной моделью (KazLLM)
+  function matchModel(m, list) {
+    if (list.some((x) => x.id === m)) return m;
+    const q = squash(m), score = (id) => { const a = squash(id); if (a === q) return 1e9; if (a && (q.includes(a) || a.includes(q))) return 1e6 + Math.min(a.length, q.length); let k = 0; while (k < a.length && a[k] === q[k]) k++; return k; };
+    const best = list.filter((x) => !NOT_CHAT.test(x.id)).map((x) => ({ ...x, s: score(x.id) + (x.loaded ? 0.5 : 0) })).sort((a, b) => b.s - a.s)[0];
+    return best && best.s >= 6 ? best.id : null;
+  }
+  let warnedModel = '';
+  function warnModel(key, msg) { if (warnedModel === key) return; warnedModel = key; ctx.ui.toast(msg, 'err', 12000); ctx.log(msg); }
+
   async function resolveModel() {
     const m = cfg('model', 'auto').trim();
-    if (m && m !== 'auto') return m;
+    if (m && m !== 'auto') {
+      const list = await modelList();
+      if (!list.length) return m;
+      const id = matchModel(m, list);
+      if (!id) { warnModel(`nf:${m}`, `Мозг: модели «${m}» нет в LM Studio — сервер ответит той, что загружена. Выберите модель из списка в настройках Мозга.`); return m; }
+      const e = list.find((x) => x.id === id);
+      if (list.some((x) => 'loaded' in x) && e && !e.loaded) warnModel(`nl:${id}`, `Мозг: модель «${id}» не загружена в LM Studio — загрузите её (или включите JIT-загрузку), иначе ответит другая модель.`);
+      return id;
+    }
     if (autoModel.id && performance.now() / 1000 - autoModel.at < 20) return autoModel.id;
     let id = '';
     try {
@@ -102,10 +134,10 @@ export default function create() {
   // имя персонажа в ответе — в написании под язык ответа (для правильного произношения): Әдина / Адина / Adina, Нұртуған / Нуртуган / Nurtogee
   function fixName(text, userLang) {
     const sp = spokenNames(), vars = ctx.engineConfig.get('assistant.variants', []);
-    if (!sp || !vars.length) return { text, lang: userLang };
+    if (!sp || !vars.length) return { text, lang: /[а-яёa-z]/i.test(text) ? langOf(text, null) : userLang };
     const re = (v) => new RegExp(`(?<![\\p{L}])${esc(v)}`, 'giu');
     const bare = vars.reduce((t, v) => t.replace(re(v), ' '), text);                      // язык определяем без самого имени (в нём бывают казахские буквы)
-    const lang = KK_LETTERS.test(bare) ? 'kk' : /[а-яё]/i.test(bare) ? (userLang === 'kk' ? 'kk' : 'ru') : /[a-z]/i.test(bare) ? 'en' : userLang;
+    const lang = /[а-яёa-z]/i.test(bare) || KK_LETTERS.test(bare) ? langOf(bare, null) : userLang;      // язык озвучки — по самому ответу: русский текст читает русский голос, даже если спрашивали по-казахски
     const to = sp[lang] ?? sp.ru;
     for (const v of vars) text = text.replace(re(v), to);
     return { text, lang };
@@ -142,7 +174,8 @@ export default function create() {
         for (const row of rows) {
           if (!row.startsWith('data:')) continue;
           const d = row.slice(5).trim(); if (d === '[DONE]') continue;
-          let tok = ''; try { tok = JSON.parse(d).choices?.[0]?.delta?.content ?? ''; } catch { continue; }
+          let tok = '', jd; try { jd = JSON.parse(d); tok = jd.choices?.[0]?.delta?.content ?? ''; } catch { continue; }
+          if (jd?.model && squash(jd.model) !== squash(model) && !squash(jd.model).includes(squash(model)) && !squash(model).includes(squash(jd.model))) { lastModel = jd.model; warnModel(`sv:${jd.model}`, `Мозг: просили «${model}», а LM Studio отвечает моделью «${jd.model}». Загрузите нужную модель в LM Studio.`); }
           if (!tok) continue;
           if (first) { first = false; tFirst = performance.now() - t0; ctx.avatar.setEmotion('neutral'); }
           full += tok; buf += tok;

@@ -72,6 +72,12 @@ export class Diagnostics {
     L.push(await this.#probe('Whisper журнал (последние строки и ошибки сервера)', `${(hc.sttUrl ?? 'http://localhost:8000/v1').replace(/\/+$/, '')}/log`));
     L.push(`Мозг: модель=${bc.model ?? 'auto (из LM Studio)'}`);
     L.push(await this.#probe('LLM-сервер', `${(bc.url ?? 'http://localhost:1235/v1').replace(/\/+$/, '')}/models`, bc.apiKey ? { headers: { Authorization: `Bearer ${bc.apiKey}` } } : {}));
+    try {                                                                 // полный список моделей LM Studio: какие есть и какие загружены
+      const root = (bc.url ?? 'http://localhost:1235/v1').replace(/\/+$/, '').replace(/\/v1$/, '');
+      const j = await (await fetch(`${root}/api/v0/models`, { signal: AbortSignal.timeout(4000), ...(bc.apiKey ? { headers: { Authorization: `Bearer ${bc.apiKey}` } } : {}) })).json();
+      L.push('Модели LM Studio (id · тип · состояние):');
+      for (const x of j.data ?? []) L.push(`- ${x.id} · ${x.type ?? '?'} · ${x.state ?? '?'}${x.quantization ? ` · ${x.quantization}` : ''}`);
+    } catch (er) { L.push(`Модели LM Studio: список недоступен (${er.message})`); }
 
     sec('Устройства и разрешения');
     for (const n of ['camera', 'microphone']) { try { L.push(`Разрешение ${n}: ${(await navigator.permissions.query({ name: n })).state}`); } catch { L.push(`Разрешение ${n}: ?`); } }
