@@ -210,8 +210,8 @@ export class Shell {
       h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get(path, def), onchange: (e) => cfg.set(path, e.target.checked) }), h('span', {})));
     pane.replaceChildren(
       h('section', { class: 'group' }, h('h3', {}, 'Интерфейс'),
-        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Имя ассистента')),
-          h('input', { class: 'text-input', value: cfg.get('assistant.name'), onchange: (e) => { cfg.set('assistant.name', e.target.value); $('#name').textContent = e.target.value; } })),
+        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Имя персонажа'), h('small', {}, 'У девушки и парня имена свои; на них ассистент откликается. Стандартные имена произносятся правильно на каждом языке')),
+          h('input', { class: 'text-input', value: cfg.get('assistant.name'), onchange: (e) => { this.engine.setName(e.target.value); $('#name').textContent = cfg.get('assistant.name'); } })),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Правая панель'), h('small', {}, 'Камера в стиле «Матрицы»; без неё аватар на весь экран')),
           h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get('ui.showViewport', false), onchange: (e) => { cfg.set('ui.showViewport', e.target.checked); this.applyViewport(e.target.checked); } }), h('span', {}))),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Ширина аватара'), h('small', {}, 'Доля экрана слева')),
@@ -229,6 +229,7 @@ export class Shell {
         toggle('Экономить, когда окно не в фокусе', 'avatar.saveInBackground', true, 'Например, когда вы играете: аватар рисуется в 12 к/с и почти не грузит видеокарту'),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Персонаж'), h('small', {}, 'Девушка (Адина) или парень (Адиль): мимика, жесты и речь одинаковые; имя и голос подстраиваются')),
           (() => { const s = h('select', { class: 'text-input' }, [['female', 'Девушка'], ['male', 'Парень']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg.get('avatar.gender', 'female'); s.onchange = () => { cfg.set('avatar.gender', s.value); setTimeout(() => this.#renderEngine(), 50); }; return s; })()),
+        toggle('Переключать персонажа по имени', 'assistant.switchByName', true, 'Назвали по имени парня или девушку — выходит тот, кого позвали'),
         toggle('Живая анимация', 'avatar.idle', true, 'Дыхание, моргание, блуждающий взгляд'),
         toggle('Комар', 'avatar.mosquito', true, 'Изредка залетает комар: она провожает его взглядом и поворачивает голову'),
         toggle('Писк комара', 'avatar.mosquitoSound', true, 'Характерный звук, громче когда он рядом'),

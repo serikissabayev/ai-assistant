@@ -16,7 +16,8 @@ PORT = int(os.environ.get('WHISPER_PORT', '8000'))
 DEVICE = os.environ.get('WHISPER_DEVICE', 'auto')
 THREADS = int(os.environ.get('WHISPER_THREADS', max(4, (os.cpu_count() or 8) // 2)))     # на процессоре используем много ядер
 # подсказка модели: имя ассистента и тематика — меньше «Зайыметсі збер», точнее «Адина»
-PROMPTS = {'kk': 'Сәлеметсіз бе, Адина! Қазақстандағы ақпараттық технологиялар және жасанды зерде орталығы.', 'ru': 'Здравствуйте, Адина! Центр информационных технологий и искусственного интеллекта.'}
+PROMPTS = {'kk': 'Сәлеметсіз бе, Әдина! Нұртуған, сәлем! Қазақстандағы ақпараттық технологиялар және жасанды зерде орталығы.', 'ru': 'Здравствуйте, Адина! Нуртуган, привет! Центр информационных технологий и искусственного интеллекта.', 'en': 'Hello, Adina! Nurtogee, hi!'}
+LANGS = [x.strip() for x in os.environ.get('WHISPER_LANGS', 'kk,ru,en').split(',') if x.strip()]      # из каких языков выбирать при автоопределении
 STUB = os.environ.get('WHISPER_STUB') == '1'        # для проверки без модели
 _lock = threading.Lock(); _model = None
 LOG = collections.deque(maxlen=60)                  # последние строки журнала — отдаются в отчёт диагностики (GET /v1/log)
@@ -65,15 +66,27 @@ def wav_to_array(data):
     if rate != 16000 and len(a): a = np.interp(np.linspace(0, len(a) - 1, int(len(a) * 16000 / rate)), np.arange(len(a)), a).astype(np.float32)
     return a
 
+def detect_language(audio):
+    """Автоопределение среди kk / ru / en (общий детектор Whisper часто путает похожие языки)."""
+    if audio is None or len(audio) < 1600: return None
+    try:
+        _, _, probs = model().detect_language(audio)
+        best = max(((p, l) for l, p in probs if l in LANGS), default=None)
+        return best[1] if best else None
+    except Exception as e:
+        print('определение языка не удалось:', repr(e)[:120], flush=True); return None
+
 def transcribe(data, language):
-    if STUB: return 'проверка связи'
+    """→ (текст, язык)"""
+    if STUB: return 'проверка связи', language or 'kk'
     audio = wav_to_array(data)
+    if not language: language = detect_language(audio)
     src = audio if audio is not None else io.BytesIO(data)
     with _lock:
         for attempt in (1, 2):
             try:
                 segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False, initial_prompt=PROMPTS.get(language or ''))
-                return ' '.join(s.text.strip() for s in segs).strip()
+                return ' '.join(s.text.strip() for s in segs).strip(), language
             except RuntimeError as e:
                 if attempt == 1 and DEVICE != 'cpu' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')):
                     to_cpu(str(e)); continue
@@ -107,9 +120,9 @@ class H(BaseHTTPRequestHandler):
             body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
             f = parse_multipart(self.headers.get('Content-Type', ''), body)
             lang = (f.get('language') or b'').decode() or None
-            text = transcribe(f['file'], lang)
+            text, lang = transcribe(f['file'], lang)
             print(f'[{lang}] {text}', flush=True)
-            self._send(200, {'text': text})
+            self._send(200, {'text': text, 'language': lang})
         except Exception as e:
             LOG.append(traceback.format_exc()[-600:]); traceback.print_exc(); print('ОШИБКА:', repr(e), flush=True); self._send(500, {'error': f'{type(e).__name__}: {e}'[:300]})
 

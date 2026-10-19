@@ -6,9 +6,10 @@ import { Avatar } from '../avatar/Avatar.js';
 import { Shell } from '../ui/Shell.js';
 import { SpeechSim } from './SpeechSim.js';
 import { Diagnostics } from './Diagnostics.js';
+import { DEFAULT_DISPLAY, LEGACY_DISPLAY, variants, mentions, spoken } from './Names.js';
 
 export const ENGINE_VERSION = '0.1.0';
-export const DEFAULT_NAMES = { female: 'Адина', male: 'Адиль' };      // имя по умолчанию для каждого персонажа
+// имена персонажей и их написания по языкам — в Names.js
 
 // Качество графики: разрешение рендера (множитель и потолок), сглаживание. Меняется перезагрузкой страницы.
 export const QUALITY = {
@@ -43,6 +44,7 @@ export class Engine {
     });
 
     this.diagnostics = new Diagnostics(this);
+    this.bus.on('hearing.transcript', (p) => this.#onHeard(p));          // раньше всех модулей: переключение персонажа до ответа «Мозга»
     this.speechSim = new SpeechSim(this);
     this.modules = new ModuleRegistry(this);
     await this.modules.loadAll('src/modules/manifest.json');
@@ -52,11 +54,41 @@ export class Engine {
     await this.modules.startEnabled();
   }
 
-  // имя: если оно «по умолчанию» (Адина/Адиль) — подставляем имя выбранного персонажа; своё имя не трогаем
+  // ───────── Имена: у каждого персонажа своё (редактируется в настройках), плюс написания по языкам для синтеза речи ─────────
+  #names() {
+    const n = { ...DEFAULT_DISPLAY, ...(this.config.get('assistant.names', null) ?? {}) };
+    for (const g of ['female', 'male']) if (!n[g] || LEGACY_DISPLAY.includes(n[g])) n[g] = DEFAULT_DISPLAY[g];
+    return n;
+  }
+
   #syncName() {
-    const g = this.config.get('avatar.gender', 'female'), cur = this.config.get('assistant.name', '');
-    if (!cur || Object.values(DEFAULT_NAMES).includes(cur)) this.config.set('assistant.name', DEFAULT_NAMES[g] ?? DEFAULT_NAMES.female);
-    const el = document.querySelector('#name'); if (el) el.textContent = this.config.get('assistant.name');
+    const g = this.config.get('avatar.gender', 'female'), names = this.#names();
+    if (!this.config.get('assistant.names', null)) {                        // перенос своего имени из прежней версии — текущему персонажу
+      const old = this.config.get('assistant.name', '');
+      if (old && !LEGACY_DISPLAY.includes(old) && !Object.values(DEFAULT_DISPLAY).includes(old)) names[g] = old;
+    }
+    const cur = names[g];
+    this.config.set('assistant.names', names); this.config.set('assistant.name', cur);
+    this.config.set('assistant.spoken', { kk: spoken(g, cur, 'kk'), ru: spoken(g, cur, 'ru'), en: spoken(g, cur, 'en') });   // как произносить имя на каждом языке
+    this.config.set('assistant.variants', variants(g, cur));
+    const el = document.querySelector('#name'); if (el) el.textContent = cur;
+  }
+
+  /** Сменить имя текущего персонажа (поле «Имя» в настройках). */
+  setName(value) {
+    value = String(value ?? '').trim(); if (!value) return;
+    const g = this.config.get('avatar.gender', 'female');
+    this.config.set('assistant.names', { ...this.#names(), [g]: value });
+    this.#syncName();
+  }
+
+  // Обращение по имени: назвали другого персонажа — он «выходит» (переключаем) и отвечает; помечаем реплику, чтобы «Мозг» знал, что обратились
+  #onHeard(p) {
+    if (!p?.final || !p.text) return;
+    const g = this.config.get('avatar.gender', 'female'), other = g === 'female' ? 'male' : 'female', names = this.#names();
+    const own = mentions(p.text, g, names[g]), oth = mentions(p.text, other, names[other]);
+    p.addressed = own || oth;
+    if (oth && !own && this.config.get('assistant.switchByName', true)) { this.config.set('avatar.gender', other); p.switchedTo = other; }
   }
 
   onFrame(fn) { this.#frameCbs.add(fn); return () => this.#frameCbs.delete(fn); }

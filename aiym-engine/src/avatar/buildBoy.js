@@ -82,7 +82,9 @@ export function buildBoy() {
     add(arm, new THREE.TorusGeometry(0.325, 0.028, 8, 32), mats.gold, [0, -0.1, 0], [Math.PI / 2, 0, 0], [1, 0.92, 1]);
     add(arm, new THREE.TorusGeometry(0.47, 0.03, 8, 32), mats.gold, [0, -1.76, 0], [Math.PI / 2, 0, 0], [1, 0.92, 1]);   // золотая окантовка манжеты
   }
-  const arms = { left: buildArm(-1, mats, chest, restArms[-1], SHOULDER), right: buildArm(1, mats, chest, restArms[1], SHOULDER) };
+  // руки крепче, браслет тёмный (воронёный металл)
+  const armOpts = { thick: 1.32, handScale: 1.14, bracelet: toon('#2a2326'), trim: toon('#5a4a42'), pearl: toon('#8c8178') };
+  const arms = { left: buildArm(-1, mats, chest, restArms[-1], SHOULDER, armOpts), right: buildArm(1, mats, chest, restArms[1], SHOULDER, armOpts) };
 
   // шея: толще, чем у девушки
   const neckProfile = [[0.14, -0.3], [0.145, -0.8], [0.155, -0.95], [0.17, -1.02], [0.2, -1.08], [0.26, -1.13], [0.36, -1.18]];

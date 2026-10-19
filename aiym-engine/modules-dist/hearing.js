@@ -9,7 +9,7 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.7', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.8', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
@@ -144,7 +144,7 @@ export default function create() {
     if (cfg('sttMode', 'browser') !== 'browser') return;
     if (!SR) { ctx.ui.toast('Этот браузер не умеет распознавать речь. Используйте Chrome или режим «Свой сервер».', 'err', 8000); return; }
     rec = new SR();
-    rec.lang = cfg('lang', 'kk-KZ'); rec.continuous = true; rec.interimResults = true;
+    rec.lang = { auto: 'kk-KZ', kk: 'kk-KZ', ru: 'ru-RU', en: 'en-US' }[cfg('langMode', 'auto')] ?? 'kk-KZ';          // встроенное распознавание браузера язык сам не определяет rec.continuous = true; rec.interimResults = true;
     rec.onresult = (e) => {
       if (speakingSelf) return;
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -179,8 +179,8 @@ export default function create() {
 
   function stopStt() { clearTimeout(restartTimer); const r = rec; rec = null; try { r?.stop(); } catch { /* ignore */ } }
 
-  function emitText(text, final, confidence) {
-    ctx.bus.emit('hearing.transcript', { text, final, confidence });
+  function emitText(text, final, confidence, lang) {
+    ctx.bus.emit('hearing.transcript', { text, final, confidence, lang });
     ctx.ui.setCaption(text, { role: 'user', hold: final ? 3 : 0 });
     ui.last && (ui.last.textContent = text);
   }
@@ -194,12 +194,12 @@ export default function create() {
       const fd = new FormData();
       fd.append('file', wavFrom(chunks, audio.sampleRate), 'speech.wav');
       fd.append('model', cfg('sttModel', 'whisper-1')); fd.append('response_format', 'json');
-      const lang = cfg('lang', 'kk-KZ').slice(0, 2); if (lang) fd.append('language', lang);
+      const lm = cfg('langMode', 'auto'); if (lm !== 'auto') fd.append('language', lm);          // «авто» — язык определяет сервер (kk / ru / en)
       const key = cfg('sttKey', '');
       const r = await fetch(`${cfg('sttUrl', 'http://localhost:8000/v1').replace(/\/+$/, '')}/audio/transcriptions`, { method: 'POST', body: fd, headers: key ? { Authorization: `Bearer ${key}` } : {} });
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${((await r.json().catch(() => ({}))).error ?? '').slice(0, 200)}`);
-      const text = ((await r.json()).text ?? '').trim();
-      if (text) { ctx.log(`распознано за ${Math.round(performance.now() - tSend)} мс: ${text}`); emitText(text, true, 1); }
+      const j = await r.json(), text = (j.text ?? '').trim();
+      if (text) { ctx.log(`распознано за ${Math.round(performance.now() - tSend)} мс [${j.language ?? '?'}]: ${text}`); emitText(text, true, 1, j.language); }
     } catch (e) { ctx.ui.toast(`Сервер распознавания не отвечает: ${e.message}`, 'err', 6000); }
   }
 
@@ -241,7 +241,7 @@ export default function create() {
     el.append(
       ui.canvas, ui.last,
       field('Микрофон', ui.mic),
-      field('Язык речи', sel('lang', 'kk-KZ', [['kk-KZ', 'Қазақша'], ['ru-RU', 'Русский'], ['en-US', 'English']], startStt)),
+      field('Язык речи', sel('langMode', 'auto', [['auto', 'Авто — как говорю, так и ответит'], ['kk', 'Қазақша'], ['ru', 'Русский'], ['en', 'English']], startStt)),
       field('Распознавание', modeSel), serverBox,
       h('div', { class: 'row-text', style: 'margin-top:14px' }, h('b', {}, 'Направление на говорящего')),
       field('Способ', sel('method', 'level', [['level', 'По громкости каналов (стерео-пара)'], ['time', 'По задержке (два разнесённых микрофона)'], ['both', 'Оба']])),

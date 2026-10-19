@@ -6,11 +6,18 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.8', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.9', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
-const promptFor = (name, gender) => `Сен Қазақстандағы ақпараттық технологиялар мен жасанды зерде орталығының "${name}" аталған дауыстық көмекшісің. Әдепті, мейірімді, әзіл-қалжыңың жеңіл болсын. Қай тілде сөйлесе, сол тілде жауап бер: қазақша, орысша немесе ағылшынша. Қысқа әрі табиғи сөйле, жауаптарың бір-үш сөйлемнен аспасын. Белгілеу тілін, тізімдерді, көңіл күй белгілерін және сілтемелерді қолданба, өйткені жауаптарың дауыстап оқылады. Білмесең, оны ашық айт.${gender === 'male' ? ' Орысша сөйлегенде өзің туралы ер адам ретінде айт (я рад, я готов).' : ' Орысша сөйлегенде өзің туралы әйел ретінде айт (я рада, я готова).'}`;
+const MARK = 'аталған дауыстық көмекшісің';       // по этому фрагменту узнаём наш стандартный характер (а не свой текст пользователя)
+const promptFor = (name, gender, sp) => `Сен Қазақстандағы ақпараттық технологиялар мен жасанды зерде орталығының "${name}" ${MARK}. Әдепті, мейірімді, әзіл-қалжыңың жеңіл болсын. Қай тілде сөйлесе, сол тілде жауап бер: қазақша, орысша немесе ағылшынша. Қысқа әрі табиғи сөйле, жауаптарың бір-үш сөйлемнен аспасын. Белгілеу тілін, тізімдерді, көңіл күй белгілерін және сілтемелерді қолданба, өйткені жауаптарың дауыстап оқылады. Білмесең, оны ашық айт.${sp ? ` Өз атыңды жауап тіліне қарай былай жаз: қазақша — "${sp.kk}", орысша — "${sp.ru}", ағылшынша — "${sp.en}".` : ''}${gender === 'male' ? ' Орысша сөйлегенде өзің туралы ер адам ретінде айт (я рад, я готов).' : ' Орысша сөйлегенде өзің туралы әйел ретінде айт (я рада, я готова).'}`;
+
+// язык по тексту: казахские буквы → kk, кириллица → ru, латиница → en
+const KK_LETTERS = /[әіңғүұқөһӘІҢҒҮҰҚӨҺ]/;
+const guessLang = (t) => (KK_LETTERS.test(t) ? 'kk' : /[а-яё]/i.test(t) ? 'ru' : /[a-z]/i.test(t) ? 'en' : 'ru');
+const LANG_LINE = { kk: 'Пайдаланушы қазір қазақша сөйлеп тұр — қазақша жауап бер.', ru: 'Пользователь сейчас говорит по-русски — отвечай по-русски.', en: 'The user is speaking English now — reply in English.' };
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // чистим то, что нельзя произносить
 // модели, которые не умеют вести диалог (речь, эмбеддинги, реранкеры) — для «auto» пропускаем
@@ -63,15 +70,28 @@ export default function create() {
 
   // характер: свой текст из настроек главнее; если пусто или это наш прежний стандартный — подставляем по имени и полу персонажа
   const charName = () => ctx.engineConfig.get('assistant.name', 'Адина'), charGender = () => ctx.engineConfig.get('avatar.gender', 'female');
+  const spokenNames = () => ctx.engineConfig.get('assistant.spoken', null);
   function effectiveSystem() {
     const s = (cfg('system', '') || '').trim();
-    const stock = ['Адина', 'Адиль'].flatMap((n) => ['female', 'male'].map((g) => promptFor(n, g)));
-    const legacy = ['Адина', 'Адиль'].map((n) => promptFor(n, 'female').replace(/ Орысша сөйлегенде[^.]*\.$/, ''));
-    return !s || stock.includes(s) || legacy.includes(s) ? promptFor(charName(), charGender()) : s;
+    return !s || s.includes(MARK) ? promptFor(charName(), charGender(), spokenNames()) : s;      // свой текст главнее; стандартный подстраиваем под имя, пол и язык
   }
 
-  async function ask(text) {
+  // имя персонажа в ответе — в написании под язык ответа (для правильного произношения): Әдина / Адина / Adina, Нұртуған / Нуртуган / Nurtogee
+  function fixName(text, userLang) {
+    const sp = spokenNames(), vars = ctx.engineConfig.get('assistant.variants', []);
+    if (!sp || !vars.length) return { text, lang: userLang };
+    const re = (v) => new RegExp(`(?<![\\p{L}])${esc(v)}`, 'giu');
+    const bare = vars.reduce((t, v) => t.replace(re(v), ' '), text);                      // язык определяем без самого имени (в нём бывают казахские буквы)
+    const lang = KK_LETTERS.test(bare) ? 'kk' : /[а-яё]/i.test(bare) ? (userLang === 'kk' ? 'kk' : 'ru') : /[a-z]/i.test(bare) ? 'en' : userLang;
+    const to = sp[lang] ?? sp.ru;
+    for (const v of vars) text = text.replace(re(v), to);
+    return { text, lang };
+  }
+
+
+  async function ask(text, lang) {
     text = text?.trim(); if (!text) return;
+    lang = lang || guessLang(text);
     abort?.abort();
     ctx.bus.emit('speech.stop', {});
     const my = abort = new AbortController();
@@ -82,13 +102,13 @@ export default function create() {
     history.push({ role: 'user', content: text });
     history = history.slice(-cfg('history', 8) * 2);
     let full = '', buf = '', first = true; const t0 = performance.now(); let tFirst = 0;
-    const say = (s) => { s = clean(s); if (s.length > 1) { ctx.bus.emit('speech.say', { text: s }); } };
+    const say = (s) => { s = clean(s); if (s.length > 1) { const f = fixName(s, lang); ctx.bus.emit('speech.say', { text: f.text, lang: f.lang }); } };
     try {
       const model = await resolveModel(); lastModel = model;
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
         body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
-          messages: [{ role: 'system', content: effectiveSystem() }, ...history] }),
+          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}` }, ...history] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
       const rd = r.body.getReader(), dec = new TextDecoder(); let line = '';
@@ -107,7 +127,7 @@ export default function create() {
         }
       }
       if (buf.trim()) say(buf);
-      if (full.trim()) { history.push({ role: 'assistant', content: full.trim() }); ctx.bus.emit('brain.reply', { text: clean(full), ms_first_token: Math.round(tFirst), ms_total: Math.round(performance.now() - t0), chars: full.length }); }
+      if (full.trim()) { history.push({ role: 'assistant', content: full.trim() }); ctx.bus.emit('brain.reply', { lang, text: fixName(clean(full), lang).text, ms_first_token: Math.round(tFirst), ms_total: Math.round(performance.now() - t0), chars: full.length }); }
       status(`готов (первый токен ${Math.round(tFirst)} мс, всего ${Math.round(performance.now() - t0)} мс)`);
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -145,6 +165,7 @@ export default function create() {
       field('Модель', model, '«auto» — брать ту, что загружена в LM Studio сейчас (рекомендуется). Или выберите/впишите имя модели.'), field('API-ключ', input('apiKey', '', { type: 'password', style: 'width:100%' }), 'Для LM Studio/Ollama не нужен'),
       field('Температура', input('temperature', 0.4, { type: 'number', step: '0.1', style: 'width:80px' })),
       field('Длина ответа (токенов)', input('maxTokens', 220, { type: 'number', style: 'width:80px' }), 'Короче — быстрее отвечает'),
+      field('Отвечать только когда назвали по имени', h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg('wakeByName', false), onchange: (e) => ctx.config.set('wakeByName', e.target.checked) }), h('span', {})), 'Выкл — отвечает на всё, что слышит. Вкл — только на обращение: «Адина, …» или «Нұртуған, …»'),
       field('Память диалога (реплик)', input('history', 8, { type: 'number', style: 'width:80px' })),
       field('Характер и правила (system prompt)', sys),
       h('button', { class: 'btn', onclick: loadModels }, 'Проверить связь'), ' ',
@@ -158,8 +179,12 @@ export default function create() {
     async start(c) {
       ctx = c; h = ctx.ui.h; cfg = ctx.config.get; history = []; viaProxy = false;
       const oldSys = cfg('system', ''); if (oldSys.includes('Айым')) ctx.config.set('system', oldSys.replaceAll('Айым', 'Адина'));   // имя ассистента теперь Адина
-      ctx.bus.on('hearing.transcript', ({ text, final }) => { if (final && cfg('auto', true) && text?.trim().length > 1) ask(text); });
-      ctx.bus.on('brain.ask', ({ text }) => ask(text));
+      ctx.bus.on('hearing.transcript', (p) => {
+        if (!p.final || !cfg('auto', true) || (p.text?.trim().length ?? 0) < 2) return;
+        if (cfg('wakeByName', false) && !p.addressed) return;                       // режим «отвечать только когда назвали по имени»
+        ask(p.text, p.lang);
+      });
+      ctx.bus.on('brain.ask', ({ text, lang }) => ask(text, lang));
       ctx.bus.on('speech.stop', () => { /* прерывание речи не отменяет мысль: новый вопрос сам прервёт прошлый */ });
       ctx.ui.addPanel({ tab: 'engine', title: 'Мозг', render: buildPanel });
       status('готов');

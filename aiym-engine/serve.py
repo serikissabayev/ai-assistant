@@ -15,17 +15,30 @@ def piper_bin():
 def list_voices():
     return sorted(p.stem for p in VOICES.glob('*.onnx') if (p.parent / (p.name + '.json')).exists())
 
-def pick_voice(want, text, gender='female'):
+# Жёсткая привязка голосов: пол персонажа + язык текста → голос.
+VOICE_MAP = {
+    'female': {'kk': 'kk_KZ-raya-x_low', 'ru': 'ru_RU-irina-medium', 'en': 'en_US-lessac-medium'},
+    'male': {'kk': 'kk_KZ-issai-high', 'ru': 'ru_RU-denis-medium', 'en': 'en_US-ryan-medium'},
+}
+
+def text_lang(text, hint=None):
+    """Язык ответа по тексту: казахские буквы → kk; кириллица → подсказка (kk/ru) или ru; латиница → en."""
+    if re.search('[әіңғүұқөһӘІҢҒҮҰҚӨҺ]', text): return 'kk'
+    if re.search('[а-яёА-ЯЁ]', text): return hint if hint in ('kk', 'ru') else 'ru'
+    if re.search('[A-Za-z]', text): return 'en'
+    return hint or 'ru'
+
+def pick_voice(want, text, gender='female', hint=None):
     vs = list_voices()
-    if want and want != 'auto' and want in vs: return want
-    lang = 'kk' if re.search('[әіңғүұқөһӘІҢҒҮҰҚӨҺ]', text) else 'ru' if re.search('[а-яёА-ЯЁ]', text) else 'en'
-    rank = lambda v: next((i for i, q in enumerate(('-high', '-medium', '-low', '-x_low')) if v.endswith(q)), 9)
-    # предпочтения по полу: мужской — iseke (kk) и denis (ru); женский — высокое качество issai/raya (kk) и irina (ru)
-    like = {'male': ('iseke', 'denis'), 'female': ('issai', 'raya', 'irina')}.get(gender, ())
-    for pref in (lang, 'kk' if lang == 'ru' else 'ru', ''):
-        cand = sorted((v for v in vs if v.startswith(pref)), key=lambda v: (0 if any(k in v for k in like) else 1, rank(v)))     # сначала подходящий по полу, потом лучшее качество
-        if cand: return cand[0]
-    return None
+    if want and want != 'auto' and want in vs: return want                       # явный выбор пользователя
+    lang = text_lang(text, hint)
+    g = gender if gender in VOICE_MAP else 'female'
+    v = VOICE_MAP[g].get(lang)
+    if v in vs: return v
+    for l in (lang, 'ru', 'kk'):                                                  # нужного файла нет — голос того же пола на другом языке
+        if VOICE_MAP[g].get(l) in vs: return VOICE_MAP[g][l]
+    cand = [x for x in vs if x.startswith(lang)] or vs
+    return cand[0] if cand else None
 
 def piper_python():
     """Python из .venv (там стоит piper-tts) или PIPER_PYTHON."""
@@ -54,10 +67,10 @@ def _worker_call(req):
             _worker = None
             if attempt == 2: return {'error': f'Piper не запустился: {e}'}
 
-def synth(text, voice, gender='female', speaker=None):
+def synth(text, voice, gender='female', speaker=None, hint=None):
     py, pb = piper_python(), piper_bin()
     if not py and not pb: raise RuntimeError('Piper не установлен: запустите tools/install_piper.bat (Windows) или tools/install_piper.sh')
-    v = pick_voice(voice, text, gender)
+    v = pick_voice(voice, text, gender, hint)
     if not v: raise RuntimeError('Нет голосов в aiym-engine/voices/ (tools/install_piper)')
     with tempfile.TemporaryDirectory() as d:
         out = pathlib.Path(d) / 'o.wav'
@@ -101,7 +114,7 @@ class Handler(SimpleHTTPRequestHandler):
             data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
             text = str(data.get('text', '')).strip()[:2000]
             if not text: return self._json(400, {'error': 'пустой текст'})
-            wav, v = synth(text, data.get('voice'), data.get('gender', 'female'), data.get('speaker'))
+            wav, v = synth(text, data.get('voice'), data.get('gender', 'female'), data.get('speaker'), data.get('lang'))
             self.send_response(200); self.send_header('Content-Type', 'audio/wav'); self.send_header('Content-Length', str(len(wav))); self.send_header('X-Voice', v); self.end_headers(); self.wfile.write(wav)
         except Exception as e:
             self._json(500, {'error': str(e)})
