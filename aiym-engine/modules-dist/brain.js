@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.11', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.12', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -19,6 +19,19 @@ const promptFor = (name, gender, sp) => `Сен Қазақстандағы ақ�
 // язык по тексту: казахские буквы → kk, кириллица → ru, латиница → en
 const KK_LETTERS = /[әіңғүұқөһӘІҢҒҮҰҚӨҺ]/;
 const guessLang = (t) => (KK_LETTERS.test(t) ? 'kk' : /[а-яё]/i.test(t) ? 'ru' : /[a-z]/i.test(t) ? 'en' : 'ru');
+// казахские слова, которые пишутся без особых букв (Whisper иногда пишет казахскую речь «по-русски» и ставит язык ru)
+const KK_WORDS = new Set(['мен', 'сен', 'сиз', 'биз', 'олар', 'бар', 'жок', 'жоқ', 'бе', 'ма', 'ме', 'па', 'пе', 'ба', 'кім', 'ким', 'неге', 'кайда', 'калай', 'канша', 'кашан', 'деп', 'жане', 'туралы', 'керек', 'айтшы', 'айтып', 'бер', 'беріңіз', 'рахмет', 'салем', 'салеметсиз', 'иа', 'жаксы', 'атын', 'атың', 'атынды', 'сенин', 'менин', 'бизге', 'маган', 'саган', 'осы', 'бул', 'анау', 'кандай', 'нешe', 'болады', 'емес', 'гой', 'шы', 'ши']);
+/** Язык реплики: казахские буквы и слова важнее метки распознавателя (он путает kk и ru). */
+function langOf(text, hint) {
+  if (KK_LETTERS.test(text)) return 'kk';
+  const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  const kk = words.filter((w) => KK_WORDS.has(w)).length;
+  if (/[а-яё]/i.test(text) && (kk >= 2 || (kk >= 1 && words.length <= 4))) return 'kk';
+  if (hint === 'ru' && !/[а-яё]/i.test(text) && /[a-z]/i.test(text)) return 'en';
+  return hint || guessLang(text);
+}
+// подсказка прямо в последней реплике: маленькие модели слушаются её лучше, чем системного текста (в историю не пишется)
+const LANG_HINT = { kk: '(Қазақша жауап бер.)', ru: '(Ответь по-русски.)', en: '(Answer in English.)' };
 const LANG_LINE = { kk: 'Пайдаланушы қазір қазақша сөйлеп тұр — қазақша жауап бер.', ru: 'Пользователь сейчас говорит по-русски — отвечай по-русски.', en: 'The user is speaking English now — reply in English.' };
 // пользователь прервал: ответ был не по теме — не продолжать, извиниться и уточнить
 const REDIRECT_LINE = "The user just interrupted you because your previous answer was off-topic or wrong. Do NOT continue or repeat it. Apologize in one short sentence and ask what exactly they need. Reply in the user's language.";
@@ -101,7 +114,7 @@ export default function create() {
 
   async function ask(text, lang, command) {
     text = text?.trim(); if (!text) return;
-    lang = lang || guessLang(text);
+    lang = langOf(text, lang);
     abort?.abort();
     ctx.bus.emit('speech.stop', {});
     const my = abort = new AbortController();
@@ -118,7 +131,7 @@ export default function create() {
       const r = await request('/chat/completions', {
         method: 'POST', signal: my.signal, headers: headers(),
         body: JSON.stringify({ model, stream: true, temperature: cfg('temperature', 0.4), max_tokens: cfg('maxTokens', 220),
-          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}${command === 'redirect' ? `\n${REDIRECT_LINE}` : ''}` }, ...history] }),
+          messages: [{ role: 'system', content: `${effectiveSystem()}\n${LANG_LINE[lang] ?? ''}${command === 'redirect' ? `\n${REDIRECT_LINE}` : ''}` }, ...history.slice(0, -1), { role: 'user', content: `${text}\n${LANG_HINT[lang] ?? ''}` }] }),
       });
       if (!r.ok) throw new Error(`${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`);
       const rd = r.body.getReader(), dec = new TextDecoder(); let line = '';

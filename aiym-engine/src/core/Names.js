@@ -1,8 +1,8 @@
 // Имена персонажей. У каждого имени — написание под каждый язык, чтобы голос произносил его правильно.
 // «display» — как имя показано в интерфейсе (его можно менять в настройках).
 export const NAME_TABLE = {
-  female: { display: 'Адина', kk: 'Әдина', ru: 'Адина', en: 'Adina', aliases: ['адина', 'адына', 'адіна'] },
-  male: { display: 'Нұртуған', kk: 'Нұртуған', ru: 'Нуртуган', en: 'Nurtogee', aliases: ['нуртуган', 'нуртугань', 'нуртогее', 'нуртоги', 'нуртоджи', 'нуртогей'] },
+  female: { display: 'Адина', kk: 'Әдина', ru: 'Адина', en: 'Adina', aliases: ['адина', 'адына', 'адіна', 'одина', 'одына', 'адена', 'одена', 'идина'] },
+  male: { display: 'Нұртуған', kk: 'Нұртуған', ru: 'Нуртуган', en: 'Nurtogee', aliases: ['нуртуган', 'уртуган', 'нуртукан', 'нуртаган', 'нартуган', 'нуртугань', 'нуртогее', 'нуртоги', 'нуртоджи', 'нуртогей'] },
 };
 export const DEFAULT_DISPLAY = { female: NAME_TABLE.female.display, male: NAME_TABLE.male.display };
 export const LEGACY_DISPLAY = ['Айым', 'Адиль'];          // прежние имена по умолчанию — заменяются на новые
@@ -69,8 +69,8 @@ export function summons(text, names) {
   if (!verb) return null;
   const hit = (g) => {
     const stems = [...new Set([...variants(g, names?.[g]).map(norm), ...(NAME_TABLE[g]?.aliases ?? []).map(norm)])].filter((x) => x.length >= 4);
-    const grams = [...words, ...words.slice(1).map((w, i) => words[i] + w)];      // «нур туган»
-    return grams.findIndex((w) => stems.some((n) => w.startsWith(n.length <= 5 ? n.slice(0, -1) : n.slice(0, -2)) || (w.length >= 5 && lev(w.slice(0, n.length), n) <= 1)));
+    const grams = [...words, ...words.slice(1).map((w, i) => (words[i].length <= 3 ? words[i] + w : ''))];      // «нур туган», «әді наны»: склеиваем, только если первая часть — обрывок
+    return grams.findIndex((w) => stems.some((n) => (w.length >= n.length && w.length <= n.length + 3 && w.startsWith(n.length <= 5 ? n.slice(0, -1) : n.slice(0, -2))) || (w.length >= 5 && w.length <= n.length + 3 && lev(w.slice(0, n.length), n) <= (n.length >= 7 ? 2 : 1))));
   };
   const f = hit('female'), m = hit('male');
   if (f < 0 && m < 0) return null;
