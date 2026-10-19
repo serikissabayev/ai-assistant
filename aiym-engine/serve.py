@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Локальный сервер без кэша: правки модулей видны сразу после перезагрузки страницы."""
-import sys, json, pathlib, os, re, shutil, subprocess, tempfile
+import sys, json, pathlib, os, re, shutil, subprocess, tempfile, urllib.request, urllib.error
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -43,7 +43,25 @@ class Handler(SimpleHTTPRequestHandler):
     def _json(self, code, obj):
         body = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+    def _proxy(self):
+        """Мини-прокси к серверу модели (если браузер блокирует прямой запрос из-за CORS). Адрес — в заголовке X-Target-Url."""
+        url = self.headers.get('X-Target-Url', '')
+        if not url.startswith(('http://', 'https://')): return self._json(400, {'error': 'нет X-Target-Url'})
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0))) if self.command == 'POST' else None
+        req = urllib.request.Request(url, data=body, method=self.command)
+        for k in ('Content-Type', 'Authorization'):
+            if self.headers.get(k): req.add_header(k, self.headers[k])
+        try: resp = urllib.request.urlopen(req, timeout=300)
+        except urllib.error.HTTPError as e: resp = e
+        except Exception as e: return self._json(502, {'error': str(e)})
+        self.send_response(resp.status if hasattr(resp, 'status') else resp.code)
+        self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json')); self.send_header('Cache-Control', 'no-store'); self.end_headers()
+        while True:
+            chunk = resp.read1(4096) if hasattr(resp, 'read1') else resp.read(4096)
+            if not chunk: break
+            self.wfile.write(chunk); self.wfile.flush()
     def do_POST(self):
+        if self.path.split('?')[0] == '/api/proxy': return self._proxy()
         if self.path.split('?')[0] != '/api/tts': return self._json(404, {'error': 'not found'})
         try:
             data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
@@ -54,6 +72,7 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._json(500, {'error': str(e)})
     def do_GET(self):
+        if self.path.split('?')[0] == '/api/proxy': return self._proxy()
         if self.path.split('?')[0].rstrip('/') == '/api/voices':
             return self._json(200, {'piper': bool(piper_bin()), 'voices': list_voices()})
         if self.path.split('?')[0].rstrip('/') == '/api/modules':
