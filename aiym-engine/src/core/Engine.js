@@ -35,7 +35,7 @@ export class Engine {
     this.#syncName();
     this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false), mosquito: this.config.get('avatar.mosquito', true), mosquitoSound: this.config.get('avatar.mosquitoSound', true) });
     this.config.onChange((path, v) => {
-      if (path === 'avatar.gender') { this.avatar.setGender(v); this.#syncName(); this.bus.emit('avatar.gender', { gender: v }); }
+      if (path === 'avatar.gender') { this.#genderAt = performance.now(); this.avatar.setGender(v); this.#syncName(); this.bus.emit('avatar.gender', { gender: v }); }
       if (path === 'avatar.quality') setTimeout(() => location.reload(), 200);          // разрешение и сглаживание применяются при старте
       if (path === 'avatar.idle') this.avatar.setOptions({ idle: v });
       if (path === 'avatar.physics') this.avatar.setOptions({ physics: v });
@@ -49,6 +49,7 @@ export class Engine {
     this.speechSim = new SpeechSim(this);
     this.modules = new ModuleRegistry(this);
     await this.modules.loadAll('src/modules/manifest.json');
+    await this.#autoUpdateModules();
     this.ui.buildSettings();
     this.#loop();
     this.bus.emit('engine.ready', { version: ENGINE_VERSION });
@@ -84,7 +85,7 @@ export class Engine {
   }
 
   // Обращение по имени: назвали другого персонажа — он «выходит» (переключаем) и отвечает; помечаем реплику, чтобы «Мозг» знал, что обратились
-  #lastStop = -99;
+  #lastStop = -99; #genderAt = -1e9;
   #onHeard(p) {
     if (!p?.text) return;
     // «стоп» / «остановись» / «тоқта» / «не то»: сразу прерываем речь и генерацию (работает и пока она говорит сама)
@@ -103,9 +104,28 @@ export class Engine {
     } else if (p.selfSpeaking) p.ignore = true;                           // услышано во время её речи и не команда — скорее всего эхо
     if (!p.final || p.ignore) return;
     const g = this.config.get('avatar.gender', 'female'), other = g === 'female' ? 'male' : 'female', names = this.#names();
-    const own = mentions(p.text, g, names[g]), oth = mentions(p.text, other, names[other]);
+    const own = mentions(p.text, g, names[g]), oth = mentions(p.text, other, names[other], 3);       // другого зовём, только если имя в начале фразы
     p.addressed = own || oth;
-    if (oth && !own && this.config.get('assistant.switchByName', true)) { this.config.set('avatar.gender', other); p.switchedTo = other; }
+    if (oth && !own && this.config.get('assistant.switchByName', true) && !p.selfSpeaking && performance.now() - this.#genderAt > 15000) {   // и не сразу после ручного выбора
+      this.bus.emit('assistant.switch', { from: g, to: other, text: p.text });
+      this.ui.toast(`Позвали «${names[other]}» — переключаюсь`);
+      this.config.set('avatar.gender', other); p.switchedTo = other;
+    }
+  }
+
+  // Модули из папки движка (Слух, Зрение, Речь, Мозг) обновляются сами, если на сервере версия новее: кнопку «Обновить» жать не нужно
+  async #autoUpdateModules() {
+    const ver = (t) => t.match(/version:\s*'([\d.]+)'/)?.[1];
+    const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+    for (const e of [...this.modules.entries.values()]) {
+      if (e.source !== 'user' || !e.dist) continue;
+      try {
+        const text = await (await fetch(e.dist, { cache: 'no-store' })).text(), v = ver(text);
+        if (!v || !e.version || !newer(v, String(e.version))) continue;
+        await this.modules.installFiles([new File([text], e.dist.split('/').pop(), { type: 'text/javascript' })]);
+        this.ui.toast(`Модуль «${e.name}» обновлён до v${v}`);
+      } catch { /* нет связи с сервером или файла нет — остаёмся на установленной версии */ }
+    }
   }
 
   onFrame(fn) { this.#frameCbs.add(fn); return () => this.#frameCbs.delete(fn); }

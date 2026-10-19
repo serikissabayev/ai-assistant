@@ -163,6 +163,7 @@ export class Shell {
     tabs.replaceChildren(...TABS.map(([id, label]) => h('button', { class: 'tab', 'data-tab': id, onclick: () => { this.tab = id; this.#renderTabs(); } }, label)));
     this.engine.bus.on('module.state', () => { this.#renderModules(); this.#renderChips(); });
     this.engine.bus.on('module.installed', () => this.#renderModules());
+    this.engine.bus.on('avatar.gender', () => { this.#renderCharacter(); $('#name').textContent = this.engine.config.get('assistant.name'); });
     this.#renderTabs(); this.#renderChips();
     this.applySplit(this.engine.config.get('ui.splitRatio', 0.5));
     this.applyViewport(this.engine.config.get('ui.showViewport', false));
@@ -210,8 +211,6 @@ export class Shell {
       h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get(path, def), onchange: (e) => cfg.set(path, e.target.checked) }), h('span', {})));
     pane.replaceChildren(
       h('section', { class: 'group' }, h('h3', {}, 'Интерфейс'),
-        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Имя персонажа'), h('small', {}, 'У девушки и парня имена свои; на них ассистент откликается. Стандартные имена произносятся правильно на каждом языке')),
-          h('input', { class: 'text-input', value: cfg.get('assistant.name'), onchange: (e) => { this.engine.setName(e.target.value); $('#name').textContent = cfg.get('assistant.name'); } })),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Правая панель'), h('small', {}, 'Камера в стиле «Матрицы»; без неё аватар на весь экран')),
           h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get('ui.showViewport', false), onchange: (e) => { cfg.set('ui.showViewport', e.target.checked); this.applyViewport(e.target.checked); } }), h('span', {}))),
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Ширина аватара'), h('small', {}, 'Доля экрана слева')),
@@ -227,9 +226,6 @@ export class Shell {
         h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Лимит кадров в секунду'), h('small', {}, '30 — вдвое легче, чем 60; движения аватара остаются плавными')),
           (() => { const s = h('select', { class: 'text-input' }, [[15, '15'], [24, '24'], [30, '30'], [60, '60'], [0, 'Без лимита']].map(([v, t]) => h('option', { value: v }, t))); s.value = String(cfg.get('avatar.fpsLimit', 30)); s.onchange = () => cfg.set('avatar.fpsLimit', Number(s.value)); return s; })()),
         toggle('Экономить, когда окно не в фокусе', 'avatar.saveInBackground', true, 'Например, когда вы играете: аватар рисуется в 12 к/с и почти не грузит видеокарту'),
-        h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, 'Персонаж'), h('small', {}, 'Девушка (Адина) или парень (Адиль): мимика, жесты и речь одинаковые; имя и голос подстраиваются')),
-          (() => { const s = h('select', { class: 'text-input' }, [['female', 'Девушка'], ['male', 'Парень']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg.get('avatar.gender', 'female'); s.onchange = () => { cfg.set('avatar.gender', s.value); setTimeout(() => this.#renderEngine(), 50); }; return s; })()),
-        toggle('Переключать персонажа по имени', 'assistant.switchByName', true, 'Назвали по имени парня или девушку — выходит тот, кого позвали'),
         toggle('Живая анимация', 'avatar.idle', true, 'Дыхание, моргание, блуждающий взгляд'),
         toggle('Комар', 'avatar.mosquito', true, 'Изредка залетает комар: она провожает его взглядом и поворачивает голову'),
         toggle('Писк комара', 'avatar.mosquitoSound', true, 'Характерный звук, громче когда он рядом'),
@@ -245,6 +241,23 @@ export class Shell {
       h('p', { class: 'hint' }, 'Горячие клавиши: S — настройки, F — полный экран, M — фильтр «Матрица».'));
   }
 
+  // Блок «Персонаж» — вверху вкладки «Аватар»: девушка/парень, имя персонажа, переключение по имени
+  #renderCharacter() {
+    const pane = $('#pane-avatar'); if (!pane) return;
+    pane.querySelector('[data-core="character"]')?.remove();
+    const cfg = this.engine.config;
+    const row = (title, hint, control) => h('label', { class: 'row' }, h('span', { class: 'row-text' }, h('b', {}, title), hint ? h('small', {}, hint) : null), control);
+    const sel = h('select', { class: 'text-input' }, [['female', 'Девушка'], ['male', 'Парень']].map(([v, t]) => h('option', { value: v }, t)));
+    sel.value = cfg.get('avatar.gender', 'female');
+    sel.onchange = () => { cfg.set('avatar.gender', sel.value); setTimeout(() => this.#renderCharacter(), 50); };
+    const name = h('input', { class: 'text-input', value: cfg.get('assistant.name', ''), onchange: (e) => { this.engine.setName(e.target.value); $('#name').textContent = cfg.get('assistant.name'); } });
+    const sw = h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg.get('assistant.switchByName', true), onchange: (e) => cfg.set('assistant.switchByName', e.target.checked) }), h('span', {}));
+    pane.prepend(h('section', { class: 'group', 'data-core': 'character' }, h('h3', {}, 'Персонаж'),
+      row('Кто на экране', 'Девушка (Адина) или парень (Нұртуған): мимика, жесты и речь одинаковые; имя и голос меняются вместе с персонажем', sel),
+      row('Имя персонажа', 'У каждого своё. Стандартные имена произносятся правильно на каждом языке', name),
+      row('Переключать по имени', 'Начали фразу с имени другого персонажа — выходит тот, кого позвали (не чаще раза в 15 с после ручного выбора)', sw)));
+  }
+
   #renderPanels() {
     for (const tab of ['avatar', 'engine']) {
       const pane = $(`#pane-${tab}`); if (!pane) continue;
@@ -254,6 +267,7 @@ export class Shell {
         pane.prepend(el); p.render(el);
       }
     }
+    this.#renderCharacter();
   }
 
   #renderChips() {

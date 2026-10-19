@@ -26,10 +26,10 @@ export function variants(gender, custom) {
 }
 
 /** Звучит ли в тексте обращение по имени (с допуском на ошибки распознавания). */
-export function mentions(text, gender, custom) {
+export function mentions(text, gender, custom, lead = Infinity) {
   const t = NAME_TABLE[gender];
   const targets = [...new Set([...variants(gender, custom).map(norm), ...(t?.aliases ?? [])])].filter((x) => x.length >= 4);
-  const words = String(text).toLowerCase().split(/[^\p{L}]+/u).filter(Boolean).map(norm).filter(Boolean);
+  const words = String(text).toLowerCase().split(/[^\p{L}]+/u).filter(Boolean).slice(0, lead).map(norm).filter(Boolean);      // lead — смотреть только первые N слов (обращение стоит в начале)
   const grams = [...words, ...words.slice(1).map((w, i) => words[i] + w)];      // «нур туган» → «нуртуган»
   return grams.some((g) => targets.some((n) => g === n || (g.length >= 6 && lev(g, n) <= (n.length >= 8 ? 2 : 1))));
 }
