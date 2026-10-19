@@ -28,7 +28,7 @@ export class Engine {
 
     this.ui = new Shell(this);
     const q = QUALITY[this.config.get('avatar.quality', 'medium')] ?? QUALITY.medium;
-    this.avatar = new Avatar(this.ui.avatarMount, { pixelRatioMax: this.config.get('avatar.pixelRatioMax', q.ratio), maxRender: this.config.get('avatar.maxRender', q.max), antialias: q.aa });
+    this.avatar = new Avatar(this.ui.avatarMount, { pixelRatioMax: this.config.get('avatar.renderRatio', q.ratio), maxRender: this.config.get('avatar.renderMax', q.max), antialias: q.aa });
     this.avatar.setOptions({ idle: this.config.get('avatar.idle', true), physics: this.config.get('avatar.physics', true), guides: this.config.get('avatar.guides', false), mosquito: this.config.get('avatar.mosquito', true), mosquitoSound: this.config.get('avatar.mosquitoSound', true) });
     this.config.onChange((path, v) => {
       if (path === 'avatar.quality') setTimeout(() => location.reload(), 200);          // разрешение и сглаживание применяются при старте
