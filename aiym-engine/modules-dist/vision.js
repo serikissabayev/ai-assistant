@@ -10,7 +10,7 @@
 //   speech.say     {text}                         ответное приветствие, когда помахали рукой (можно отключить)
 // Библиотека распознавания (MediaPipe) лежит локально в vendor/mediapipe/ — интернет не нужен.
 export const meta = {
-  id: 'vision', name: 'Зрение', version: '0.7', engine: 1, category: 'input',
+  id: 'vision', name: 'Зрение', version: '0.8', engine: 1, category: 'input',
   description: 'Лица, говорящий, движение, жесты, приветствие в ответ и реакция на недопустимые жесты. Требует модуль «Веб-камера».',
 };
 
@@ -51,7 +51,7 @@ export default function create() {
         return [f, g, delegate, p];
       };
       let r;
-      try { r = await make(cfg('delegate', 'GPU')); } catch (e) { ctx.log('GPU недоступен, перехожу на CPU:', e.message); r = await make('CPU'); }
+      try { r = await make('GPU'); } catch (e) { ctx.ui.toast(`Зрение: видеокарта недоступна в браузере (${e.message}) — временно считаю на процессоре. Проверьте edge://gpu и «Аппаратное ускорение» в настройках Edge.`, 'err', 12000); r = await make('CPU'); }      // всегда видеокарта
       if (stopped) { r[0].close(); r[1].close(); r[3]?.close(); return; }
       [face, hands] = r; pose = r[3]; loadState = 'ready'; stat.model = `готово (${r[2]})`;
       ctx.log('модели загружены', r[2]);
@@ -358,7 +358,6 @@ export default function create() {
       field('Копировать мимику', check('mimic', true), 'Улыбка на улыбку, грусть на грусть, злость на злость (ближайшее лицо)'),
       field('Чувствительность мимики (1–10)', h('input', { type: 'range', min: 1, max: 10, step: 1, value: cfg('mimicSens', 5), oninput: (e) => ctx.config.set('mimicSens', Number(e.target.value)) }), 'Выше — реагирует на слабую мимику'),
       field('Частота анализа камеры (кадров/с)', h('input', { type: 'range', min: 4, max: 30, value: cfg('fps', 10), oninput: (e) => ctx.config.set('fps', Number(e.target.value)) }), 'Ниже — легче для видеокарты и процессора; 10 хватает для мимики и жестов'),
-      field('Считать на', (() => { const s = h('select', { class: 'text-input' }, [['GPU', 'Видеокарте'], ['CPU', 'Процессоре (разгружает видеокарту)']].map(([v, t]) => h('option', { value: v }, t))); s.value = cfg('delegate', 'GPU'); s.onchange = () => ctx.config.set('delegate', s.value); return s; })(), 'Применится после перезагрузки страницы'),
       field('Жесты', check('gestures', true)),
       field('Лайк по форме руки', check('geoLike', true), 'Запасной способ: большой палец вверх, остальные в кулаке — работает, даже если модель путает лайк с кулаком'),
       field('Строгость жестов (1–5)', h('input', { type: 'range', min: 1, max: 5, step: 1, value: cfg('strictness', 4), oninput: (e) => ctx.config.set('strictness', Number(e.target.value)) }), 'Выше — надо махать сильнее и дольше, жест держать дольше'),

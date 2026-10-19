@@ -16,9 +16,9 @@ if not defined PYV (
   exit /b 1
 )
 echo Использую Python %PYV%. Установка займёт 3-5 минут...
-if exist .venv rmdir /s /q .venv
-py %PYV% -m venv .venv
-.venv\Scripts\python.exe -m pip install --upgrade pip faster-whisper
+if not exist .venv\Scripts\python.exe py %PYV% -m venv .venv
+rem Whisper работает только на видеокарте NVIDIA: ставим и библиотеки CUDA (cuBLAS, cuDNN)
+.venv\Scripts\python.exe -m pip install --upgrade pip faster-whisper nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
 if errorlevel 1 (
   echo.
   echo ОШИБКА установки. Пришлите текст выше.

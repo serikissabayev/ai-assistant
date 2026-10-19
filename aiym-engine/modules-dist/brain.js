@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.14', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.15', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -93,7 +93,8 @@ export default function create() {
     if (!r.ok) throw new Error(j.error?.message ?? j.error ?? `HTTP ${r.status}`);
     return j;
   }
-  const lmLoad = (key) => lmPost('load', { model: key, context_length: Number(cfg('ctxLen', 8192)) || 8192 });
+  // всё на видеокарте: KV-кэш в видеопамяти, Flash Attention (слои модели LM Studio кладёт на GPU сама — «GPU Offload: Max» в её настройках)
+  const lmLoad = (key) => lmPost('load', { model: key, context_length: Number(cfg('ctxLen', 8192)) || 8192, flash_attention: true, offload_kv_cache_to_gpu: true });
   const lmUnload = (id) => lmPost('unload', { instance_id: id });
   const isChat = (m) => /llm|vlm/.test(m.type) && !NOT_CHAT.test(m.key);
   /** Сделать модель рабочей: (по желанию) выгрузить остальные чат-модели, загрузить её, записать в настройки. */

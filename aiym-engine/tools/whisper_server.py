@@ -3,7 +3,7 @@
 
   python tools/whisper_server.py            # http://localhost:8000/v1
 Переменные: WHISPER_MODEL (small | medium | large-v3 | large-v3-turbo, по умолчанию small),
-            WHISPER_PORT (8000), WHISPER_DEVICE (auto | cpu | cuda).
+            WHISPER_PORT (8000), WHISPER_DEVICE (cuda по умолчанию — только видеокарта; cpu — только если явно попросить).
 Казахский (kk), русский (ru) и английский (en) Whisper понимает; для казахского лучше medium и выше.
 """
 import collections, io, json, os, re, sys, threading, traceback
@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.environ.get('WHISPER_MODEL', 'small')
 PORT = int(os.environ.get('WHISPER_PORT', '8000'))
-DEVICE = os.environ.get('WHISPER_DEVICE', 'auto')
+DEVICE = os.environ.get('WHISPER_DEVICE', 'cuda')          # только видеокарта: на процессоре каждая фраза распознаётся секундами
 THREADS = int(os.environ.get('WHISPER_THREADS', max(4, (os.cpu_count() or 8) // 2)))     # на процессоре используем много ядер
 # подсказка модели: имя ассистента и тематика — меньше «Зайыметсі збер», точнее «Адина»
 PROMPTS = {'kk': 'Сәлеметсіз бе. Қазақстандағы ақпараттық технологиялар және жасанды зерде орталығы.', 'ru': 'Здравствуйте. Центр информационных технологий и искусственного интеллекта.', 'en': 'Hello.'}          # имён персонажей здесь нет намеренно
@@ -41,16 +41,24 @@ def model():
     if _model is None:
         add_nvidia_dlls()
         from faster_whisper import WhisperModel
-        print(f'Загружаю модель {MODEL} на {DEVICE} (первый раз скачивается)…', flush=True)
-        _model = WhisperModel(MODEL, device=DEVICE, compute_type='int8' if DEVICE == 'cpu' else 'auto', cpu_threads=THREADS)
+        if DEVICE == 'cuda':
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() < 1:
+                raise RuntimeError('Видеокарта NVIDIA не найдена для Whisper (нет драйвера/CUDA). Запустите tools\\install_whisper_gpu.bat')
+        print(f'Загружаю модель {MODEL} на {"видеокарту (CUDA, float16)" if DEVICE == "cuda" else DEVICE}…', flush=True)
+        _model = WhisperModel(MODEL, device=DEVICE, compute_type='float16' if DEVICE == 'cuda' else 'int8', cpu_threads=THREADS)
         print('Модель готова.', flush=True)
     return _model
 
-def to_cpu(reason):
-    """Видеокарта недоступна (нет CUDA-библиотек) — переходим на процессор."""
-    global _model, DEVICE
-    print(f'GPU недоступна ({reason[:120]}) → перехожу на процессор (CPU). Для видеокарты: tools\\install_whisper_gpu.bat', flush=True)
-    _model, DEVICE = None, 'cpu'
+def warmup():
+    """Первый проход на видеокарте медленный (инициализация CUDA) — делаем его сразу, а не на первой фразе пользователя."""
+    import numpy as np, time
+    t = time.time()
+    list(model().transcribe(np.zeros(16000, dtype=np.float32), language='kk', beam_size=1)[0])
+    print(f'Прогрев GPU: {time.time() - t:.1f} с', flush=True)
+
+def gpu_error(e):
+    return RuntimeError(f'Whisper не может работать на видеокарте: {str(e)[:160]}. Запустите tools\\install_whisper_gpu.bat и перезапустите start_all.bat')
 
 def wav_to_array(data):
     """WAV (PCM 16 бит) → float32 моно 16 кГц, без PyAV. Не WAV — None (тогда отдаём как есть)."""
@@ -86,16 +94,14 @@ def transcribe(data, language):
     if not language: language = detect_language(audio)
     src = audio if audio is not None else io.BytesIO(data)
     with _lock:
-        for attempt in (1, 2):
-            try:
-                segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False, initial_prompt=PROMPTS.get(language or ''))
-                text = ' '.join(s.text.strip() for s in segs).strip()
-                if language != 'kk' and KK_RE.search(text): language = 'kk'          # в тексте казахские буквы — значит казахский
-                return text, language
-            except RuntimeError as e:
-                if attempt == 1 and DEVICE != 'cpu' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')):
-                    to_cpu(str(e)); continue
-                raise
+        try:
+            segs, _ = model().transcribe(src, language=language or None, vad_filter=True, beam_size=1, condition_on_previous_text=False, initial_prompt=PROMPTS.get(language or ''))
+            text = ' '.join(s.text.strip() for s in segs).strip()
+        except RuntimeError as e:
+            if DEVICE == 'cuda' and any(w in str(e).lower() for w in ('cublas', 'cudnn', 'cuda', 'dll')): raise gpu_error(e)        # на процессор не уходим — только GPU
+            raise
+        if language != 'kk' and KK_RE.search(text): language = 'kk'          # в тексте казахские буквы — значит казахский
+        return text, language
 
 def parse_multipart(ctype, body):
     msg = BytesParser(policy=email_policy).parsebytes(b'Content-Type: ' + ctype.encode() + b'\r\n\r\n' + body)
@@ -116,7 +122,7 @@ class H(BaseHTTPRequestHandler):
         for k, v in (('Access-Control-Allow-Origin', '*'), ('Access-Control-Allow-Headers', '*'), ('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')): self.send_header(k, v)
         self.end_headers()
     def do_GET(self):
-        if self.path.rstrip('/').endswith('/log'): return self._send(200, {'model': MODEL, 'log': list(LOG)})
+        if self.path.rstrip('/').endswith('/log'): return self._send(200, {'model': MODEL, 'device': DEVICE, 'log': list(LOG)})
         if self.path.rstrip('/').endswith('/models'): return self._send(200, {'data': [{'id': MODEL}]})
         self._send(200, {'status': 'ok', 'model': MODEL})
     def do_POST(self):
@@ -133,7 +139,10 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     if not STUB:
-        try: model()
+        try: model(); warmup()
         except ImportError: sys.exit('Нет faster-whisper. Установите: tools/install_whisper.bat (Windows) или pip install faster-whisper')
+        except Exception as e:
+            print('ОШИБКА:', gpu_error(e), flush=True)
+            sys.exit(1)
     print(f'Whisper → http://localhost:{PORT}/v1   (Ctrl+C — остановить)', flush=True)
     ThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()

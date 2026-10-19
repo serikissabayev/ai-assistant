@@ -124,7 +124,12 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.split('?')[0] == '/api/proxy': return self._proxy()
         if self.path.split('?')[0].rstrip('/') == '/api/voices':
-            return self._json(200, {'piper': bool(piper_bin() or piper_python()), 'voices': list_voices()})
+            dev = None
+            if piper_python():
+                try:
+                    with _wlock: dev = 'gpu' if _worker_call({'info': True}).get('gpu') else 'cpu'
+                except Exception: dev = None
+            return self._json(200, {'piper': bool(piper_bin() or piper_python()), 'device': dev, 'voices': list_voices()})
         if self.path.split('?')[0].rstrip('/') == '/api/modules':
             mods = []
             for mj in sorted(pathlib.Path('modules').glob('*/module.json')):
