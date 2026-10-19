@@ -16,6 +16,9 @@ echo Использую Python %PYV%. Ставлю Piper...
 if exist .venv\Scripts\python.exe (echo Использую готовое окружение .venv) else (py %PYV% -m venv .venv)
 .venv\Scripts\python.exe -m pip install --upgrade pip piper-tts
 if errorlevel 1 (echo ОШИБКА установки Piper & pause & exit /b 1)
+rem голос синтезируется на видеокарте: onnxruntime-gpu вместо обычного onnxruntime
+.venv\Scripts\python.exe -m pip uninstall -y onnxruntime >nul 2>nul
+.venv\Scripts\python.exe -m pip install --upgrade onnxruntime-gpu nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
 if not exist voices mkdir voices
 echo Скачиваю голоса...
 call :get ru ru_RU irina medium

@@ -8,10 +8,31 @@ out_stream = sys.stdout
 sys.stdout = sys.stderr            # любые print() библиотек — в stderr, чтобы не ломать протокол
 voices = {}
 
+def gpu_ready():
+    """Голос — на видеокарте: onnxruntime-gpu + библиотеки CUDA из pip-пакетов nvidia-* (tools/install_whisper_gpu.bat)."""
+    import glob, os
+    for d in glob.glob(os.path.join(sys.prefix, 'Lib', 'site-packages', 'nvidia', '*', 'bin')) + glob.glob(os.path.join(sys.prefix, 'lib', 'python*', 'site-packages', 'nvidia', '*', 'lib')):
+        os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+        if hasattr(os, 'add_dll_directory'):
+            try: os.add_dll_directory(d)
+            except OSError: pass
+    try:
+        import onnxruntime as ort
+        if hasattr(ort, 'preload_dlls'):
+            try: ort.preload_dlls()
+            except Exception: pass
+        return 'CUDAExecutionProvider' in ort.get_available_providers()
+    except Exception:
+        return False
+
+GPU = gpu_ready()
+print('Piper:', 'видеокарта (CUDA)' if GPU else 'ВНИМАНИЕ: onnxruntime-gpu не найден — голос на процессоре. Запустите tools\\install_whisper_gpu.bat')
+
 def load(path):
     if path not in voices:
         from piper import PiperVoice
-        voices[path] = PiperVoice.load(path)
+        try: voices[path] = PiperVoice.load(path, use_cuda=GPU)
+        except TypeError: voices[path] = PiperVoice.load(path)             # очень старый piper без use_cuda
     return voices[path]
 
 def say(voice, text, out, speaker=None):
@@ -29,6 +50,8 @@ def say(voice, text, out, speaker=None):
 for line in sys.stdin:
     try:
         req = json.loads(line)
+        if req.get('info'):
+            out_stream.write(json.dumps({'ok': True, 'gpu': GPU}) + '\n'); out_stream.flush(); continue
         say(load(req['model']), req['text'], req['out'], req.get('speaker'))
         resp = {'ok': True}
     except Exception as e:
