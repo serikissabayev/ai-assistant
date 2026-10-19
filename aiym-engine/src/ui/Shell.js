@@ -232,6 +232,11 @@ export class Shell {
         toggle('Писк комара', 'avatar.mosquitoSound', true, 'Характерный звук, громче когда он рядом'),
         toggle('Физика украшений', 'avatar.physics', true, 'Подвески, коса, помпон, вуаль'),
         toggle('Линия подбородка', 'avatar.guides', false, 'Тонкий пунктир-подсказка (отладка)')),
+      h('section', { class: 'group' }, h('h3', {}, 'Диагностика'),
+        h('p', { class: 'hint' }, 'Один отчёт со всем: что включено, какие настройки, связь с Whisper/LLM/Piper, камера и микрофон, лог ошибок. Нажмите и вставьте в чат.'),
+        h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' },
+          h('button', { class: 'btn primary', onclick: () => this.engine.diagnostics.copy() }, 'Скопировать отчёт'),
+          h('button', { class: 'btn', onclick: () => this.engine.diagnostics.downloadReport() }, 'Скачать файлом'))),
       h('section', { class: 'group' }, h('h3', {}, 'Сброс'),
         h('button', { class: 'btn danger', onclick: () => confirm('Сбросить все настройки движка?') && cfg.reset() }, 'Сбросить настройки')),
       h('p', { class: 'hint' }, 'Горячие клавиши: S — настройки, F — полный экран, M — фильтр «Матрица».'));
