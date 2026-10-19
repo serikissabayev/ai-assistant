@@ -6,7 +6,7 @@
 // Выдаёт:  speech.say {text} — по мере генерации, фраза за фразой (озвучивает модуль «Речь»);
 //          brain.thinking {on}, brain.reply {text}.
 export const meta = {
-  id: 'brain', name: 'Мозг (LLM)', version: '0.13', engine: 1, category: 'brain',
+  id: 'brain', name: 'Мозг (LLM)', version: '0.14', engine: 1, category: 'brain',
   description: 'Языковая модель: LM Studio / Ollama / OpenRouter. Потоковый ответ, озвучка по фразам.',
 };
 
@@ -71,13 +71,44 @@ export default function create() {
   let autoModel = { id: '', at: -99 };
   // список моделей сервера (кэш 30 с): [{id, loaded}]
   let models = { at: -99, list: [] };
+  // ───────── LM Studio: список, загрузка и выгрузка моделей (родной REST API: /api/v1 в LM Studio 0.4+, иначе /api/v0 — только список) ─────────
+  const lmRoot = () => base().replace(/\/v1$/, '');
+  async function lmList() {
+    try {
+      const r = await request(`${lmRoot()}/api/v1/models`, { headers: headers() });
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j.models)) return { v: 1, list: j.models.map((m) => ({ key: m.key, name: m.display_name || m.key, type: m.type ?? 'llm', quant: m.quantization?.name ?? '', size: m.size_bytes ?? 0, inst: (m.loaded_instances ?? []).map((i) => i.id), maxCtx: m.max_context_length })) };
+      }
+    } catch { /* старая LM Studio или не LM Studio */ }
+    try {
+      const j = await (await request(`${lmRoot()}/api/v0/models`, { headers: headers() })).json();
+      if (Array.isArray(j.data)) return { v: 0, list: j.data.map((m) => ({ key: m.id, name: m.id, type: m.type ?? 'llm', quant: m.quantization ?? '', size: 0, inst: m.state === 'loaded' ? [m.id] : [], maxCtx: m.max_context_length })) };
+    } catch { /* не LM Studio */ }
+    return { v: -1, list: [] };
+  }
+  async function lmPost(path, body) {
+    const r = await request(`${lmRoot()}/api/v1/models/${path}`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error?.message ?? j.error ?? `HTTP ${r.status}`);
+    return j;
+  }
+  const lmLoad = (key) => lmPost('load', { model: key, context_length: Number(cfg('ctxLen', 8192)) || 8192 });
+  const lmUnload = (id) => lmPost('unload', { instance_id: id });
+  const isChat = (m) => /llm|vlm/.test(m.type) && !NOT_CHAT.test(m.key);
+  /** Сделать модель рабочей: (по желанию) выгрузить остальные чат-модели, загрузить её, записать в настройки. */
+  async function useModel(key) {
+    const { v, list } = await lmList();
+    if (v !== 1) { ctx.config.set('model', key); throw new Error('загрузка по API нужна LM Studio 0.4+ — модель записана в настройки, загрузите её в LM Studio вручную'); }
+    if (cfg('unloadOthers', true)) for (const m of list) if (m.key !== key && isChat(m)) for (const id of m.inst) await lmUnload(id);     // освобождаем видеопамять
+    const me = list.find((m) => m.key === key);
+    if (!me?.inst.length) await lmLoad(key);
+    ctx.config.set('model', key); models.at = -99; autoModel = { id: '', at: -99 }; warnedModel = '';
+  }
+
   async function modelList() {
     if (performance.now() / 1000 - models.at < 30) return models.list;
-    let list = [];
-    try {
-      const j = await (await request(`${base().replace(/\/v1$/, '')}/api/v0/models`, { headers: headers() })).json();
-      list = (j.data ?? []).map((x) => ({ id: x.id, loaded: x.state === 'loaded', type: x.type }));
-    } catch { /* не LM Studio */ }
+    let list = (await lmList()).list.map((m) => ({ id: m.key, loaded: m.inst.length > 0, type: m.type }));
     if (!list.length) { try { list = ((await (await request('/models', { headers: headers() })).json()).data ?? []).map((x) => ({ id: x.id, loaded: true })); } catch { /* нет связи */ } }
     models = { at: performance.now() / 1000, list };
     return list;
@@ -106,7 +137,8 @@ export default function create() {
     }
     if (autoModel.id && performance.now() / 1000 - autoModel.at < 20) return autoModel.id;
     let id = '';
-    try {
+    try { const { list } = await lmList(); loadedList = list.filter((m) => m.inst.length).map((m) => `${m.key} (${m.type})`); id = list.find((m) => m.inst.length && isChat(m))?.key ?? ''; } catch { /* дальше — старый способ */ }
+    if (!id) try {
       const root = base().replace(/\/v1$/, '');
       const j = await (await request(`${root}/api/v0/models`, { headers: headers() })).json();
       const loaded = (j.data ?? []).filter((x) => x.state === 'loaded' && /llm|vlm/.test(x.type ?? 'llm') && !NOT_CHAT.test(x.id));
@@ -208,16 +240,48 @@ export default function create() {
     } catch (e) { ui.info && (ui.info.textContent = `Нет связи с ${base()}: ${e.message}`); }
   }
 
+  const gb = (b) => (b ? `${(b / 1e9).toFixed(1)} ГБ` : '');
+  let lmBusy = false, lmTok = 0;
+  async function renderLm() {
+    if (!ui.lm) return;
+    const tok = ++lmTok, { v, list } = await lmList();
+    if (tok !== lmTok) return;                                            // пришёл ответ на устаревший запрос — рисует более свежий
+    if (ui.modelInput) ui.modelInput.value = cfg('model', 'auto');
+    if (v < 0) { ui.lm.replaceChildren(h('div', { class: 'hint' }, 'LM Studio не отвечает (Developer → Start Server).')); return; }
+    const cur = cfg('model', 'auto');
+    const rows = list.filter((m) => m.type !== 'embedding' && m.type !== 'embeddings').sort((a, b) => (b.inst.length - a.inst.length) || a.name.localeCompare(b.name)).map((m) => {
+      const on = m.inst.length > 0, chat = isChat(m), using = cur !== 'auto' ? cur === m.key : on && chat;
+      const act = (label, fn, primary) => h('button', { class: `btn${primary ? ' primary' : ''}`, disabled: lmBusy || (v !== 1 && label !== 'Использовать'), onclick: async () => {
+        lmBusy = true; renderLm(); status(`${label.toLowerCase()}: ${m.name}…`);
+        try { await fn(); ctx.ui.toast(`${label}: ${m.name} — готово`); } catch (e) { ctx.ui.toast(`LM Studio: ${e.message}`, 'err', 9000); }
+        lmBusy = false; models.at = -99; renderLm(); loadModels(); status('готов');
+      } }, label);
+      return h('div', { style: `display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:8px;border:1px solid ${using ? 'var(--accent, #d9a566)' : 'rgba(127,127,127,.25)'}` },
+        h('span', { style: 'flex:1;min-width:160px' }, h('b', {}, m.name), h('small', { class: 'hint', style: 'display:block' }, [m.key, m.type, m.quant, gb(m.size)].filter(Boolean).join(' · '))),
+        h('small', { style: `color:${on ? '#5fbf7a' : 'inherit'};opacity:${on ? 1 : 0.6}` }, on ? (using ? '● отвечает' : '● загружена') : '○ не загружена'),
+        chat && !using ? act('Использовать', () => useModel(m.key), true) : null,
+        v === 1 && !on ? act('Загрузить', () => lmLoad(m.key)) : null,
+        v === 1 && on ? act('Выгрузить', async () => { for (const id of m.inst) await lmUnload(id); if (cur === m.key) ctx.config.set('model', 'auto'); }) : null);
+    });
+    ui.lm.replaceChildren(...rows, ...(v !== 1 ? [h('div', { class: 'hint' }, 'Загрузка и выгрузка по API — в LM Studio 0.4 и новее. Сейчас доступен только список.')] : []),
+      h('button', { class: 'btn', style: 'align-self:flex-start', onclick: () => { models.at = -99; renderLm(); } }, 'Обновить список'));
+  }
+
   function buildPanel(el) {
     const field = (label, node, hint) => h('label', { class: 'row', style: 'flex-wrap:wrap' }, h('span', { class: 'row-text' }, h('b', {}, label), hint ? h('small', {}, hint) : null), node);
     const input = (key, def, attrs = {}) => { const i = h('input', { class: 'text-input', value: cfg(key, def), ...attrs }); i.onchange = () => { ctx.config.set(key, attrs.type === 'number' ? Number(i.value) : i.value.trim()); if (key === 'url') { viaProxy = false; loadModels(); } }; return i; };
     ui.info = h('div', { class: 'hint', style: 'margin:6px 0' }, '…'); ui.status = h('div', { class: 'hint' }, '');
     ui.models = h('datalist', { id: 'brain-models' });
-    const model = input('model', 'auto', { style: 'width:100%', list: 'brain-models' });
+    const model = ui.modelInput = input('model', 'auto', { style: 'width:100%', list: 'brain-models' });
+    ui.lm = h('div', { style: 'display:flex;flex-direction:column;gap:6px;margin:4px 0 10px' });
     const sys = h('textarea', { class: 'text-input', rows: 6, style: 'width:100%;resize:vertical' }); sys.value = effectiveSystem(); sys.onchange = () => ctx.config.set('system', sys.value);
     const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлем! Өзіңді таныстыршы.' });
     el.append(ui.info, ui.status, ui.models,
       field('Адрес сервера', input('url', 'http://localhost:1235/v1', { style: 'width:100%' }), 'LM Studio: Developer → Start Server. Ollama: http://localhost:11434/v1. OpenRouter: https://openrouter.ai/api/v1'),
+h('div', { class: 'group-sub', style: 'margin:8px 0 2px' }, h('b', {}, 'Модели LM Studio'), h('small', { class: 'hint', style: 'display:block' }, '«Использовать» — загрузить модель в LM Studio и отвечать ею. Список берётся прямо из LM Studio.')),
+      ui.lm,
+      field('Выгружать остальные', h('span', { class: 'switch' }, h('input', { type: 'checkbox', checked: cfg('unloadOthers', true), onchange: (e) => ctx.config.set('unloadOthers', e.target.checked) }), h('span', {})), 'При выборе модели выгрузить другие чат-модели, чтобы не занимали видеопамять'),
+      field('Контекст при загрузке (токенов)', input('ctxLen', 8192, { type: 'number', style: 'width:90px' }), 'Больше — помнит длиннее, но ест больше видеопамяти'),
       field('Модель', model, '«auto» — брать ту, что загружена в LM Studio сейчас (рекомендуется). Или выберите/впишите имя модели.'), field('API-ключ', input('apiKey', '', { type: 'password', style: 'width:100%' }), 'Для LM Studio/Ollama не нужен'),
       field('Температура', input('temperature', 0.4, { type: 'number', step: '0.1', style: 'width:80px' })),
       field('Длина ответа (токенов)', input('maxTokens', 220, { type: 'number', style: 'width:80px' }), 'Короче — быстрее отвечает'),
@@ -228,7 +292,7 @@ export default function create() {
       h('button', { class: 'btn', onclick: () => { history = []; ctx.ui.toast('Память диалога очищена'); } }, 'Забыть разговор'),
       ' ', h('button', { class: 'btn', onclick: () => { ctx.config.set('system', ''); sys.value = effectiveSystem(); ctx.ui.toast('Характер сброшен на значение по умолчанию'); } }, 'Характер по умолчанию'),
       field('Проверка', test), h('button', { class: 'btn primary', onclick: () => ask(test.value) }, 'Спросить'));
-    loadModels();
+    loadModels(); renderLm();
   }
 
   return {
