@@ -1,10 +1,10 @@
-// «Речь» — голос Айым через Piper (локальный нейро-TTS на сервере движка), губы по звуку.
+// «Речь» — голос Адины через Piper (локальный нейро-TTS на сервере движка), губы по звуку.
 // Один файл: перетащите его в окно движка. Сервер: tools/install_piper.sh (ставит Piper и голоса в voices/).
 //
 // Слушает: speech.say {text}  — сказать (очередь), speech.stop — замолчать.
 // Выдаёт:  speech.start {text}, speech.end — вокруг каждой фразы (модуль «Слух» в это время не слушает).
 export const meta = {
-  id: 'speech', name: 'Речь', version: '0.3', engine: 1, category: 'output',
+  id: 'speech', name: 'Речь', version: '0.4', engine: 1, category: 'output',
   description: 'Голос через Piper (локально): казахский и русский, синхронизация губ по звуку.',
 };
 
@@ -122,7 +122,7 @@ export default function create() {
     ui.info = h('div', { class: 'hint', style: 'margin:6px 0 10px' }, '…');
     ui.voice = h('select', { class: 'text-input', style: 'width:100%' });
     ui.voice.onchange = () => ctx.config.set('voice', ui.voice.value);
-    const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлеметсіз бе! Мен Айыммын. Сізге қалай көмектесе аламын?' });
+    const test = h('input', { class: 'text-input', style: 'width:100%', value: 'Сәлеметсіз бе! Мен Адинамын. Сізге қалай көмектесе аламын?' });
     el.append(
       ui.info, field('Голос', ui.voice),
       field('Громкость', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: cfg('volume', 1), oninput: (e) => { ctx.config.set('volume', Number(e.target.value)); if (gain) gain.gain.value = Number(e.target.value); } })),

@@ -48,7 +48,7 @@ export class Diagnostics {
   async collect() {
     const e = this.e, cfg = e.config, L = [];
     const sec = (t) => L.push('', `## ${t}`);
-    L.push('# Отчёт диагностики ассистента Айым', `Время: ${new Date().toString()}`, `Работает со старта страницы: ${Math.round((Date.now() - T0) / 1000)} с`);
+    L.push('# Отчёт диагностики ассистента Адина', `Время: ${new Date().toString()}`, `Работает со старта страницы: ${Math.round((Date.now() - T0) / 1000)} с`);
 
     sec('Система');
     const gl = (() => { try { const g = e.avatar.renderer.getContext(); const x = g.getExtension('WEBGL_debug_renderer_info'); return x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch { return '?'; } })();
@@ -103,7 +103,7 @@ export class Diagnostics {
   async downloadReport() { this.download(await this.collect()); }
 
   download(text) {
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })), download: `aiym-diagnostics-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt` });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })), download: `adina-diagnostics-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt` });
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 }

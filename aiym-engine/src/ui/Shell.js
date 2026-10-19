@@ -65,7 +65,7 @@ export class Shell {
       if (eng.config.get('ui.autoHideChrome', true) && !this.drawer.classList.contains('open')) idle = setTimeout(() => document.body.classList.add('idle'), 5000);
     };
     addEventListener('pointermove', wake); addEventListener('keydown', wake); wake();
-    $('#name').textContent = eng.config.get('assistant.name', 'Айым');
+    $('#name').textContent = eng.config.get('assistant.name', 'Адина');
   }
 
   // ───────── «Открыть модуль» (как документ в Word) ─────────

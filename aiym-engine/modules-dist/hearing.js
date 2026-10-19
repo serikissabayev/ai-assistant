@@ -9,13 +9,13 @@
 // Слушает: speech.start / speech.end (пока ассистент говорит — не распознаёт её же голос),
 //          vision.speaker (если «Зрение» уже ведёт взгляд по лицу, слух взгляд не трогает).
 export const meta = {
-  id: 'hearing', name: 'Слух', version: '0.6', engine: 1, category: 'input',
+  id: 'hearing', name: 'Слух', version: '0.7', engine: 1, category: 'input',
   description: 'Стерео-микрофон, голос, направление на говорящего, распознавание речи (браузер или свой сервер Whisper).',
 };
 
 const SR = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
 
-const WORKLET = `class P extends AudioWorkletProcessor{process(i){const c=i[0];if(c&&c.length){const n=c[0].length,m=new Float32Array(n);for(let k=0;k<c.length;k++){const ch=c[k];for(let j=0;j<n;j++)m[j]+=ch[j]/c.length}this.port.postMessage(m,[m.buffer])}return true}}registerProcessor('aiym-capture',P)`;
+const WORKLET = `class P extends AudioWorkletProcessor{process(i){const c=i[0];if(c&&c.length){const n=c[0].length,m=new Float32Array(n);for(let k=0;k<c.length;k++){const ch=c[k];for(let j=0;j<n;j++)m[j]+=ch[j]/c.length}this.port.postMessage(m,[m.buffer])}return true}}registerProcessor('adina-capture',P)`;
 
 function wavFrom(chunks, sampleRate) {
   let n = 0; for (const c of chunks) n += c.length;
@@ -58,7 +58,7 @@ export default function create() {
     if (cfg('sttMode', 'browser') === 'server') {
       workletUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
       await audio.audioWorklet.addModule(workletUrl);
-      const node = new AudioWorkletNode(audio, 'aiym-capture'), mute = audio.createGain(); mute.gain.value = 0;
+      const node = new AudioWorkletNode(audio, 'adina-capture'), mute = audio.createGain(); mute.gain.value = 0;
       src.connect(node); node.connect(mute); mute.connect(audio.destination); nodes.push(node, mute);
       node.port.onmessage = (e) => {
         const c = e.data; if (!audio) return;
