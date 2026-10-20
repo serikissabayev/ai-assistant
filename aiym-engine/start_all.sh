@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Запуск всего на Linux: Whisper (видеокарта) + движок + браузер.  Ctrl+C — остановить всё.
-# Сервер ИИ (LM Studio) — отдельно; адрес: ./tools/set_llm_url.sh
+# Сервер ИИ (LM Studio) — отдельно; адрес: ./tools/set_llm_url.sh. Whisper на сервере: ./tools/set_stt_url.sh
 cd "$(dirname "$0")"
 . tools/common.sh
 cuda_libs
@@ -8,7 +8,11 @@ mkdir -p logs
 pids=()
 cleanup() { kill "${pids[@]}" 2>/dev/null; exit 0; }
 trap cleanup INT TERM
-if .venv/bin/python -c 'import faster_whisper' >/dev/null 2>&1; then
+REMOTE_STT=$(python3 tools/stt_remote.py 2>/dev/null)
+if [ -n "$REMOTE_STT" ]; then
+  echo "Whisper — на сервере: $REMOTE_STT (локально не запускаю)"
+  curl -fsS -m 3 "$REMOTE_STT/models" >/dev/null 2>&1 || echo "ВНИМАНИЕ: Whisper на сервере не отвечает — запустите там ./tools/start_whisper_server.sh (или .bat) и откройте порт"
+elif .venv/bin/python -c 'import faster_whisper' >/dev/null 2>&1; then
   ./tools/start_whisper.sh > logs/whisper.log 2>&1 & pids+=($!)
   echo "Whisper запущен (журнал: logs/whisper.log)"
 else echo "Whisper не установлен — запустите ./install_all.sh (без него ассистент не слышит)"; fi

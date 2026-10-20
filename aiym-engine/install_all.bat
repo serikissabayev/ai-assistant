@@ -13,6 +13,10 @@ if not defined PYV (
   pause
   exit /b 1
 )
+call tools\set_llm_url.bat
+call tools\set_stt_url.bat
+set "REMOTE_STT="
+for /f "usebackq delims=" %%u in (`py %PYV% tools\stt_remote.py 2^>nul`) do set "REMOTE_STT=%%u"
 where nvidia-smi >nul 2>nul && (nvidia-smi --query-gpu=name,memory.total --format=csv,noheader) || echo ВНИМАНИЕ: nvidia-smi не найден - нужен драйвер NVIDIA ^(ассистент работает только на видеокарте^).
 echo Python %PYV%. Ставлю Whisper, Piper и библиотеки CUDA (несколько минут)...
 if not exist .venv\Scripts\python.exe py %PYV% -m venv .venv
@@ -23,9 +27,10 @@ if errorlevel 1 (echo ОШИБКА установки - пришлите тек�
 .venv\Scripts\python.exe -m pip install -q --upgrade onnxruntime-gpu
 if errorlevel 1 (echo ОШИБКА установки onnxruntime-gpu & pause & exit /b 1)
 call :voices
+if defined REMOTE_STT goto :skipmodel
 echo Скачиваю модель распознавания речи large-v3-turbo (~1.6 ГБ, один раз)...
 .venv\Scripts\python.exe -c "from faster_whisper.utils import download_model; download_model('large-v3-turbo')"
-call tools\set_llm_url.bat
+:skipmodel
 rem ярлык на рабочем столе
 powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Адина.lnk'); $s.TargetPath='%~dp0start_all.bat'; $s.WorkingDirectory='%~dp0'; $s.Save()" >nul 2>nul
 echo.
