@@ -23,7 +23,7 @@
 
 ## Linux (Ubuntu / Debian / Fedora)
 
-1. Подготовка (Ubuntu): `sudo apt install git curl python3 python3-venv` и драйвер NVIDIA (`sudo ubuntu-drivers install`, затем перезагрузка).
+1. Подготовка (Ubuntu): `sudo apt install git curl` (если в системе Python новее 3.12 — установщик сам поставит отдельный Python 3.12 через uv, системный не трогает) и драйвер NVIDIA (`sudo ubuntu-drivers install`, затем перезагрузка).
 2. Скачайте проект и запустите установку:
    ```
    cd ~
