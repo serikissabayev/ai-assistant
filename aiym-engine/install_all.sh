@@ -2,6 +2,7 @@
 # Установка всего на новом Linux-компьютере (Ubuntu/Debian/Fedora…): распознавание речи (Whisper), голос (Piper), голоса, модель.
 # Нужны: git, curl, Python 3.10–3.12 с venv, драйвер NVIDIA.   Запуск:  ./install_all.sh
 set -e
+trap 'echo; echo "ОШИБКА на строке $LINENO — установка не закончена. Пришлите текст выше."' ERR
 cd "$(dirname "$0")"
 . tools/common.sh
 
@@ -10,12 +11,13 @@ PY=$(pick_python) || {
   echo "Ubuntu 22.04: sudo apt install python3.11 python3.11-venv    Fedora: sudo dnf install python3.12"
   exit 1; }
 echo "Python: $PY ($($PY --version))"
-$PY -m venv --help >/dev/null 2>&1 || { echo "Нет модуля venv: sudo apt install python3-venv (или python3.12-venv)"; exit 1; }
+PYV=$($PY -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+$PY -c 'import ensurepip, venv' >/dev/null 2>&1 || { echo "Нет venv/ensurepip. Выполните:  sudo apt install -y python3-venv python${PYV}-venv   и запустите ./install_all.sh снова"; exit 1; }
 command -v curl >/dev/null || { echo "Нет curl: sudo apt install curl"; exit 1; }
 if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 else echo "ВНИМАНИЕ: nvidia-smi не найден — нужен драйвер NVIDIA (ассистент работает только на видеокарте)."; fi
 
-[ -x .venv/bin/python ] || $PY -m venv .venv
+[ -x .venv/bin/pip ] || { rm -rf .venv; $PY -m venv .venv; }        # недоделанное окружение (без pip) — пересоздаём
 echo "Ставлю Whisper, Piper и библиотеки CUDA (несколько минут)…"
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q --upgrade faster-whisper piper-tts nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
