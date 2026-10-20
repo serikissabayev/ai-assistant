@@ -8,10 +8,10 @@ mkdir -p logs
 pids=()
 cleanup() { kill "${pids[@]}" 2>/dev/null; exit 0; }
 trap cleanup INT TERM
-if [ -x .venv/bin/python ]; then
+if .venv/bin/python -c 'import faster_whisper' >/dev/null 2>&1; then
   ./tools/start_whisper.sh > logs/whisper.log 2>&1 & pids+=($!)
   echo "Whisper запущен (журнал: logs/whisper.log)"
-else echo "Whisper не установлен (./install_all.sh) — запускаю без него"; fi
+else echo "Whisper не установлен — запустите ./install_all.sh (без него ассистент не слышит)"; fi
 python3 serve.py 8080 > logs/engine.log 2>&1 & pids+=($!)
 sleep 3
 URL=http://localhost:8080
