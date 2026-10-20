@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.environ.get('WHISPER_MODEL', 'small')
 PORT = int(os.environ.get('WHISPER_PORT', '8000'))
+HOST = os.environ.get('WHISPER_HOST', '127.0.0.1')        # 0.0.0.0 — принимать запросы из локальной сети (Whisper на сервере для нескольких ассистентов)
 DEVICE = os.environ.get('WHISPER_DEVICE', 'cuda')          # только видеокарта: на процессоре каждая фраза распознаётся секундами
 THREADS = int(os.environ.get('WHISPER_THREADS', max(4, (os.cpu_count() or 8) // 2)))     # на процессоре используем много ядер
 # подсказка модели: имя ассистента и тематика — меньше «Зайыметсі збер», точнее «Адина»
@@ -144,5 +145,11 @@ if __name__ == '__main__':
         except Exception as e:
             print('ОШИБКА:', gpu_error(e), flush=True)
             sys.exit(1)
+    if HOST in ('0.0.0.0', '::'):
+        import socket
+        try:                                           # адрес в локальной сети (пакет никуда не уходит — только выбор интерфейса)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as so: so.connect(('10.255.255.255', 1)); ip = so.getsockname()[0]
+        except Exception: ip = 'IP-этого-сервера'
+        print(f'Whisper для локальной сети → http://{ip}:{PORT}/v1   (на ассистентах: tools/set_stt_url — этот адрес; порт {PORT} откройте в брандмауэре)', flush=True)
     print(f'Whisper → http://localhost:{PORT}/v1   (Ctrl+C — остановить)', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()
+    ThreadingHTTPServer((HOST, PORT), H).serve_forever()
