@@ -6,14 +6,11 @@ trap 'echo; echo "ОШИБКА на строке $LINENO — установка 
 cd "$(dirname "$0")"
 . tools/common.sh
 
-PY=$(pick_python) || {
-  echo "Нужен Python 3.10–3.12. Ubuntu 24.04: sudo apt install python3 python3-venv"
-  echo "Ubuntu 22.04: sudo apt install python3.11 python3.11-venv    Fedora: sudo dnf install python3.12"
-  exit 1; }
+command -v curl >/dev/null || { echo "Нет curl: sudo apt install curl"; exit 1; }
+PY=$(ensure_python) || { echo "Не удалось получить Python 3.12 (нужен интернет). Пришлите текст выше."; exit 1; }
 echo "Python: $PY ($($PY --version))"
 PYV=$($PY -c 'import sys; print("%d.%d" % sys.version_info[:2])')
 $PY -c 'import ensurepip, venv' >/dev/null 2>&1 || { echo "Нет venv/ensurepip. Выполните:  sudo apt install -y python3-venv python${PYV}-venv   и запустите ./install_all.sh снова"; exit 1; }
-command -v curl >/dev/null || { echo "Нет curl: sudo apt install curl"; exit 1; }
 if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 else echo "ВНИМАНИЕ: nvidia-smi не найден — нужен драйвер NVIDIA (ассистент работает только на видеокарте)."; fi
 
